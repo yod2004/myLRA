@@ -3,77 +3,85 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hybrid Controller (Manual Mode Added)</title>
+    <title>Hybrid Controller (Mode 3 Fixed)</title>
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #222; color: #fff; }
+        body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #222; color: #fff; touch-action: manipulation; }
         
         /* 映像表示エリア */
         canvas { 
             border: 4px solid #2196F3;
             background-color: #000;
             width: 100%; max-width: 640px; height: auto; border-radius: 8px;
-            display: none; /* 初期状態は非表示 */
+            display: none; margin: 0 auto;
         }
         video { display: none; }
 
-        /* ボタンデザイン */
-        button { cursor: pointer; border-radius: 5px; border: none; font-weight: bold; transition: 0.1s; -webkit-tap-highlight-color: transparent;}
+        /* ボタン共通 */
+        button { cursor: pointer; border-radius: 6px; border: none; font-weight: bold; transition: 0.1s; -webkit-tap-highlight-color: transparent;}
         button:active { transform: scale(0.96); }
         button:disabled { background-color: #555 !important; color: #888 !important; cursor: not-allowed; transform: none; }
 
-        .btn-sys { font-size: 1.1em; padding: 10px 20px; margin: 5px; background-color: #607D8B; color: white; }
+        .btn-sys { font-size: 1rem; padding: 12px 20px; margin: 5px; background-color: #607D8B; color: white; }
         
         /* モード切替タブ */
-        .mode-tabs { margin: 20px 0; display: flex; justify-content: center; gap: 5px; flex-wrap: wrap;}
-        .tab { padding: 10px 20px; font-size: 1.1em; opacity: 0.5; background: #444; color: #fff;}
-        .tab.active { opacity: 1; background-color: #2196F3; box-shadow: 0 0 10px #2196F3; }
-        /* モード3用の色 */
-        #mode3Btn.active { background-color: #4CAF50; box-shadow: 0 0 10px #4CAF50; }
+        .mode-tabs { margin: 20px 0; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap;}
+        .tab { padding: 10px 15px; font-size: 1rem; opacity: 0.6; background: #444; color: #fff; border: 2px solid transparent;}
+        
+        /* モード別のアクティブ色 */
+        #mode1Btn.active { opacity: 1; background-color: #2196F3; border-color: #64B5F6; } /* 青 */
+        #mode2Btn.active { opacity: 1; background-color: #9C27B0; border-color: #BA68C8; } /* 紫 */
+        #mode3Btn.active { opacity: 1; background-color: #4CAF50; border-color: #81C784; } /* 緑 */
 
         /* パラメータ設定エリア */
         #param-area {
             background-color: #333; border: 1px solid #555; border-radius: 8px;
-            padding: 15px; max-width: 400px; margin: 20px auto;
+            padding: 15px; max-width: 350px; margin: 20px auto;
         }
-        .param-row { display: flex; justify-content: space-around; margin-bottom: 10px; gap: 10px; }
-        .param-group { display: flex; flex-direction: column; align-items: center; width: 45%; }
-        .param-group label { font-size: 0.8em; color: #ccc; margin-bottom: 5px; }
+        .param-row { display: flex; justify-content: space-between; margin-bottom: 10px; gap: 10px; }
+        .param-group { display: flex; flex-direction: column; align-items: center; width: 48%; }
+        .param-group label { font-size: 0.8rem; color: #ccc; margin-bottom: 5px; }
         .param-input {
             width: 100%; padding: 8px; background: #222; border: 1px solid #444; 
-            color: white; border-radius: 4px; text-align: center; font-size: 1em;
+            color: white; border-radius: 4px; text-align: center; font-size: 1.1rem;
         }
-        #btn-update { width: 100%; padding: 10px; background-color: #FF9800; color: white; font-size: 1em; }
+        #btn-update { width: 100%; padding: 12px; background-color: #FF9800; color: white; font-size: 1rem; margin-top: 5px;}
 
         /* CSV保存エリア */
         #save-area { margin-top: 20px; display: none; }
-        .btn-save { font-size: 1.1em; padding: 10px 20px; background-color: #E91E63; color: white; }
-        .btn-clear { font-size: 1.1em; padding: 10px 20px; background-color: #9E9E9E; color: white; margin-left: 10px; }
+        .btn-save { padding: 10px 20px; background-color: #E91E63; color: white; }
+        .btn-clear { padding: 10px 20px; background-color: #9E9E9E; color: white; margin-left: 10px; }
 
         /* 十字キーエリア */
-        #dpad-area { display: none; margin: 20px auto; width: 220px; height: 220px; position: relative; }
+        #dpad-area { display: none; margin: 30px auto; width: 240px; height: 240px; position: relative; }
         .d-btn { 
             position: absolute; width: 70px; height: 70px; 
-            background: #444; color: white; font-size: 28px;
+            background: #444; color: white; font-size: 30px;
             border-radius: 12px; user-select: none;
-            touch-action: none; /* スマホでの長押しメニューなどを無効化 */
+            box-shadow: 0 4px 0 #222; /* 立体感 */
         }
-        /* Mode 3のときは緑色にする */
-        .mode3-active .d-btn:active { background: #4CAF50; }
-        .mode1-active .d-btn:active { background: #2196F3; }
+        .d-btn:active { box-shadow: 0 0 0 #222; transform: translateY(4px); }
 
-        #btn-up    { top: 0; left: 75px; }
-        #btn-down  { bottom: 0; left: 75px; }
-        #btn-left  { top: 75px; left: 0; }
-        #btn-right { top: 75px; right: 0; }
+        /* モードによる十字キーの色変化 */
+        .mode3-active .d-btn { border: 2px solid #4CAF50; color: #4CAF50; }
+        .mode3-active .d-btn:active { background: #4CAF50; color: white; }
 
-        #status { font-size: 1.2em; margin-bottom: 10px; color: #aaa; min-height: 1.5em; }
-        #loading { font-size: 1.1em; color: #aaa; margin-bottom: 10px; display:none; }
+        .mode1-active .d-btn { border: 2px solid #2196F3; color: #2196F3; }
+        .mode1-active .d-btn:active { background: #2196F3; color: white; }
+
+        #btn-up    { top: 0; left: 85px; }
+        #btn-down  { bottom: 0; left: 85px; }
+        #btn-left  { top: 85px; left: 0; }
+        #btn-right { top: 85px; right: 0; }
+
+        #status { font-size: 1.1rem; margin-bottom: 10px; color: #aaa; min-height: 1.5em; font-weight: bold; }
+        #loading { color: #aaa; margin-bottom: 10px; display:none; }
     </style>
 </head>
 <body>
-    <h1>Hybrid Controller</h1>
-    <div id="loading">OpenCV.js ロード中...</div>
+    <h3>ESP32 Controller</h3>
+    
     <div id="status">Bluetooth未接続</div>
+    <div id="loading">OpenCV ロード中...</div>
 
     <canvas id="canvas"></canvas>
     <video id="webcam" autoplay playsinline></video>
@@ -84,9 +92,9 @@
     </div>
 
     <div class="mode-tabs">
-        <button id="mode3Btn" class="tab active">Mode 3: 動作確認</button>
-        <button id="mode1Btn" class="tab">Mode 1: 3秒記録</button>
-        <button id="mode2Btn" class="tab">Mode 2: 自動追尾</button>
+        <button id="mode3Btn" class="tab active">Mode 3<br><span style="font-size:0.7em">動作確認(Manual)</span></button>
+        <button id="mode1Btn" class="tab">Mode 1<br><span style="font-size:0.7em">3秒記録(Rec)</span></button>
+        <button id="mode2Btn" class="tab">Mode 2<br><span style="font-size:0.7em">自動追尾(Auto)</span></button>
     </div>
 
     <div id="dpad-area" class="mode3-active">
@@ -97,33 +105,32 @@
     </div>
 
     <div id="param-area">
-        <div style="font-weight:bold; margin-bottom:10px;">振動パラメータ設定</div>
+        <div style="font-weight:bold; margin-bottom:10px; color:#FF9800;">パラメータ設定</div>
         <div class="param-row">
             <div class="param-group">
-                <label>Res 1 (上下)</label>
+                <label>Res 1 (Up/Down)</label>
                 <input type="number" id="p-res1" class="param-input" value="5" min="1">
             </div>
             <div class="param-group">
-                <label>Rep 1 (上下)</label>
+                <label>Rep 1 (Up/Down)</label>
                 <input type="number" id="p-rep1" class="param-input" value="4" min="0">
             </div>
         </div>
         <div class="param-row">
             <div class="param-group">
-                <label>Res 2 (左右)</label>
+                <label>Res 2 (L/R)</label>
                 <input type="number" id="p-res2" class="param-input" value="10" min="1">
             </div>
             <div class="param-group">
-                <label>Rep 2 (左右)</label>
+                <label>Rep 2 (L/R)</label>
                 <input type="number" id="p-rep2" class="param-input" value="4" min="0">
             </div>
         </div>
-        <button id="btn-update">パラメータを送信</button>
+        <button id="btn-update">パラメータを送信して更新</button>
     </div>
 
     <div id="save-area">
-        <span id="log-count">データ数: 0</span>
-        <br><br>
+        <div id="log-count" style="margin-bottom:10px;">データ数: 0</div>
         <button id="saveBtn" class="btn-save">💾 CSV保存</button>
         <button id="clearBtn" class="btn-clear">🗑️ クリア</button>
     </div>
@@ -132,39 +139,32 @@
 
     <script>
         // ==========================================
-        // 定数・変数
+        // 1. 設定値
         // ==========================================
         const HEADER_MANUAL = 0x01;
         const HEADER_AUTO   = 0x02;
         const HEADER_PARAM  = 0x03;
+        const DIR_STOP      = 0;
 
-        // ボタンIDとArduino側のmanualIdのマッピング
-        // Arduino: 1=D6(Up?), 2=D8(Down?), 3=D7(Right?), 4=D10(Left?)
-        // 必要に応じて入れ替えてください
-        const DIR_UP = 1, DIR_DOWN = 2, DIR_RIGHT = 3, DIR_LEFT = 4;
-        const DIR_STOP = 0;
-        
-        const SEND_INTERVAL = 200; 
-        let lastSendTime = 0;        
-        let isSending = false;       
-
+        // システム変数
         let video, canvas, ctx;
         let bleDevice, bleCharacteristic;
         let cvReady = false;
         
-        // モード管理: 1=記録, 2=自動, 3=動作確認(手動)
-        let currentMode = 3; 
-        
-        let latestX = 0, latestY = 0;
-        let originX = 0, originY = 0;
+        // 状態変数
+        let currentMode = 3; // 初期値はMode 3 (動作確認)
+        let isSending = false;
 
+        // ログ用
         let recordedData = [];
         let isRecording = false;
         let recordStartTime = 0;
-        let currentDirectionStr = "";
+        let originX=0, originY=0;
+        let latestX=0, latestY=0;
+        let currentDirStr = "";
 
         // ==========================================
-        // 関数: Bluetooth & カメラ
+        // 2. Bluetooth & カメラ
         // ==========================================
         function onOpenCvReady() {
             cvReady = true;
@@ -183,7 +183,7 @@
                 });
                 video.srcObject = stream;
                 await video.play(); 
-                canvas.style.display = 'block'; // カメラONなら表示
+                canvas.style.display = 'block'; 
                 requestAnimationFrame(processVideo);
                 document.getElementById('startButton').disabled = true;
                 document.getElementById('startButton').textContent = "カメラ動作中";
@@ -200,7 +200,8 @@
                 const server = await bleDevice.gatt.connect();
                 const service = await server.getPrimaryService(SERVICE_UUID);
                 bleCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
-                document.getElementById('status').textContent = "Bluetooth接続済み";
+                
+                document.getElementById('status').textContent = "Bluetooth接続OK";
                 document.getElementById('status').style.color = "#4CAF50";
             } catch (err) { 
                 alert("接続失敗: " + err); 
@@ -209,27 +210,14 @@
         }
 
         // ==========================================
-        // 関数: コマンド送信
+        // 3. データ送信ロジック
         // ==========================================
-        async function sendBleData(data) {
-            if (!bleCharacteristic || isSending) return;
-            // Autoモード以外は間引きしない、またはAutoのみ間引き
-            if (currentMode === 2 && Date.now() - lastSendTime < SEND_INTERVAL) return;
-            
-            try {
-                isSending = true;
-                await bleCharacteristic.writeValue(data);
-                lastSendTime = Date.now();
-            } catch (err) { console.error(err); } 
-            finally { isSending = false; }
-        }
-
         async function sendManualCommand(id) {
             if (!bleCharacteristic) return;
             try {
-                // 手動コマンドは優先度高く即送信
+                // 手動コマンド: [0x01, ID, 0]
                 await bleCharacteristic.writeValue(new Uint8Array([HEADER_MANUAL, id, 0]));
-            } catch(e){}
+            } catch(e) { console.error(e); }
         }
 
         async function sendParamUpdate() {
@@ -240,254 +228,234 @@
             const p2 = parseInt(document.getElementById('p-rep2').value) || 4;
 
             try {
-                const data = new Uint8Array([HEADER_PARAM, r1, p1, r2, p2]);
-                await bleCharacteristic.writeValue(data);
-                alert(`パラメータ更新完了`);
+                // パラメータ更新: [0x03, r1, p1, r2, p2]
+                await bleCharacteristic.writeValue(new Uint8Array([HEADER_PARAM, r1, p1, r2, p2]));
+                alert("パラメータを更新しました");
             } catch (e) { alert("送信エラー: " + e); }
         }
 
         // ==========================================
-        // 関数: 動作ロジック
-        // ==========================================
-
-        // [Mode 1] 3秒間記録シーケンス
-        function startRecordSequence(dirId, dirName) {
-            if (isRecording) return;
-            
-            // カメラが動いていない場合のアラート
-            if (latestX === 0 && latestY === 0 && !video.srcObject) {
-                if(!confirm("カメラが起動していません。ログには座標(0,0)が記録されますが続けますか？")) return;
-            }
-
-            originX = latestX;
-            originY = latestY;
-            isRecording = true;
-            recordStartTime = Date.now();
-            currentDirectionStr = dirName;
-            
-            sendManualCommand(dirId);
-            document.getElementById('status').textContent = `REC中: ${dirName}`;
-
-            setTimeout(() => {
-                sendManualCommand(DIR_STOP);
-                isRecording = false;
-                document.getElementById('status').textContent = "Mode 1: 待機中";
-                updateLogCount();
-            }, 3000);
-        }
-
-        // [Mode 3] 押している間だけ動く処理
-        function handleBtnPress(dirId, dirName) {
-            if (currentMode !== 3) return;
-            sendManualCommand(dirId);
-            document.getElementById('status').textContent = `Manual: ${dirName} ON`;
-        }
-        
-        function handleBtnRelease() {
-            if (currentMode !== 3) return;
-            sendManualCommand(DIR_STOP);
-            document.getElementById('status').textContent = `Manual: 停止`;
-        }
-
-
-        // ==========================================
-        // UI制御
+        // 4. モード制御
         // ==========================================
         function setMode(mode) {
             currentMode = mode;
             
-            // タブの見た目
+            // タブの見た目リセット
             document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
             document.getElementById(`mode${mode}Btn`).classList.add('active');
 
-            // 表示エリアの切り替え
+            // 表示エリア制御
             const dpad = document.getElementById('dpad-area');
             const saveArea = document.getElementById('save-area');
-            const canvasEl = document.getElementById('canvas');
             const status = document.getElementById('status');
 
             // クラスリセット
             dpad.classList.remove('mode1-active', 'mode3-active');
 
-            if (mode === 1) { // 記録モード
-                status.textContent = "Mode 1: 3秒記録 (ボタンで開始)";
+            if (mode === 3) {
+                // --- Mode 3: 動作確認 (Manual) ---
+                status.textContent = "Mode 3: 動作確認 (押している間ON)";
+                status.style.color = "#4CAF50";
                 dpad.style.display = "block";
-                dpad.classList.add('mode1-active'); // 青色
-                saveArea.style.display = "block";
-                if(video.srcObject) canvasEl.style.display = "block";
+                dpad.classList.add('mode3-active'); // 緑枠
+                saveArea.style.display = "none";
 
-            } else if (mode === 2) { // 自動モード
+            } else if (mode === 1) {
+                // --- Mode 1: 記録 (Rec) ---
+                status.textContent = "Mode 1: 3秒記録 (タップで開始)";
+                status.style.color = "#2196F3";
+                dpad.style.display = "block";
+                dpad.classList.add('mode1-active'); // 青枠
+                saveArea.style.display = "block";
+
+            } else if (mode === 2) {
+                // --- Mode 2: 自動 (Auto) ---
                 status.textContent = "Mode 2: 自動追尾 (十字キー無効)";
+                status.style.color = "#9C27B0";
                 dpad.style.display = "none";
                 saveArea.style.display = "none";
-                if(video.srcObject) canvasEl.style.display = "block";
-
-            } else if (mode === 3) { // 動作確認モード
-                status.textContent = "Mode 3: 動作確認 (押している間ON)";
-                dpad.style.display = "block";
-                dpad.classList.add('mode3-active'); // 緑色
-                saveArea.style.display = "none";
-                // カメラ不要なのでキャンバスは非表示でもよいが、起動してれば見せる
-                canvasEl.style.display = video.srcObject ? "block" : "none";
             }
         }
 
+        // ==========================================
+        // 5. 十字キーイベント処理
+        // ==========================================
+        // Mode 1: クリックで3秒シーケンス開始
+        function startRecordSequence(id, name) {
+            if (isRecording) return;
+            
+            // カメラがない場合は警告なしで座標0として記録
+            if (!video.srcObject) {
+                console.log("No camera: recording (0,0)");
+            }
+
+            // 記録開始
+            originX = latestX; originY = latestY;
+            isRecording = true;
+            recordStartTime = Date.now();
+            currentDirStr = name;
+            
+            sendManualCommand(id);
+            document.getElementById('status').textContent = `REC中: ${name}`;
+
+            // 3秒後に停止
+            setTimeout(() => {
+                sendManualCommand(DIR_STOP);
+                isRecording = false;
+                document.getElementById('status').textContent = "Mode 1: 記録完了";
+                updateLogCount();
+            }, 3000);
+        }
+
+        // Mode 3: 押しっぱなし処理
+        function setupDpad() {
+            const btns = document.querySelectorAll('.d-btn');
+            btns.forEach(btn => {
+                const id = parseInt(btn.dataset.dir);
+                const name = btn.textContent;
+
+                // 押したとき (マウス & タッチ)
+                const pressHandler = (e) => {
+                    e.preventDefault(); 
+                    if (currentMode === 3) {
+                        sendManualCommand(id);
+                        document.getElementById('status').textContent = `動作中: ${name}`;
+                    } else if (currentMode === 1) {
+                        startRecordSequence(id, name);
+                    }
+                };
+
+                // 離したとき (マウス & タッチ)
+                const releaseHandler = (e) => {
+                    e.preventDefault();
+                    if (currentMode === 3) {
+                        sendManualCommand(DIR_STOP);
+                        document.getElementById('status').textContent = "Mode 3: 待機中";
+                    }
+                };
+
+                btn.addEventListener('mousedown', pressHandler);
+                btn.addEventListener('touchstart', pressHandler, { passive: false });
+
+                btn.addEventListener('mouseup', releaseHandler);
+                btn.addEventListener('mouseleave', releaseHandler);
+                btn.addEventListener('touchend', releaseHandler);
+            });
+        }
+
+        // ==========================================
+        // 6. ログ & 画像処理
+        // ==========================================
         function updateLogCount() {
             document.getElementById('log-count').textContent = `データ数: ${recordedData.length}行`;
         }
 
-        function clearLog() {
-            recordedData = [];
-            updateLogCount();
-        }
-
-        function saveCSV() {
-            if (recordedData.length === 0) { alert("データがありません"); return; }
-            let csvContent = "Time(ms),Input,RawX,RawY,RelX,RelY\n";
-            recordedData.forEach(row => {
-                csvContent += `${row.time},${row.input},${row.x},${row.y},${row.relX},${row.relY}\n`;
+        document.getElementById('saveBtn').onclick = () => {
+            if (recordedData.length === 0) { alert("データなし"); return; }
+            let csv = "Time,Input,RawX,RawY,RelX,RelY\n";
+            recordedData.forEach(r => {
+                csv += `${r.t},${r.in},${r.x},${r.y},${r.rx},${r.ry}\n`;
             });
-            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const blob = new Blob([csv], { type: 'text/csv' });
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url;
-            a.download = `log_${Date.now()}.csv`;
+            a.href = url; a.download = `log_${Date.now()}.csv`;
             a.click();
-        }
+        };
 
-        // ==========================================
+        document.getElementById('clearBtn').onclick = () => {
+            recordedData = []; updateLogCount();
+        };
+
         // 画像処理ループ
-        // ==========================================
         function processVideo() {
             try {
-                if (!cvReady || video.paused || video.ended) {
-                    requestAnimationFrame(processVideo);
-                    return;
+                if (!cvReady || video.paused || video.ended) { requestAnimationFrame(processVideo); return; }
+                
+                // キャンバスサイズ合わせ
+                if(canvas.width !== 640) {
+                    let aspect = video.videoHeight / video.videoWidth;
+                    canvas.width = 640; canvas.height = 640 * aspect;
                 }
-
-                let vw = video.videoWidth;
-                let vh = video.videoHeight;
-                if (vw === 0 || vh === 0) return;
-
-                let aspect = vh / vw;
-                canvas.width = 640; canvas.height = 640 * aspect;
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                let src = cv.matFromImageData(ctx.getImageData(0, 0, canvas.width, canvas.height));
+                let src = cv.matFromImageData(ctx.getImageData(0,0,canvas.width,canvas.height));
+                
+                // 青色検出
                 let hsv = new cv.Mat();
                 cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
                 cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
-
                 let mask = new cv.Mat();
-                // 青色検出 (H:100-140)
                 let low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), new cv.Scalar(100, 60, 20));
                 let high = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), new cv.Scalar(140, 255, 255));
                 cv.inRange(hsv, low, high, mask);
 
+                // 輪郭
                 let contours = new cv.MatVector();
                 let hierarchy = new cv.Mat();
                 cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-                let maxArea = 0;
                 let bestContour = null;
-                for (let i = 0; i < contours.size(); ++i) {
+                let maxArea = 0;
+                for(let i=0; i<contours.size(); i++) {
                     let cnt = contours.get(i);
                     let area = cv.contourArea(cnt, false);
-                    if (area > 20 && area > maxArea) {
-                        maxArea = area;
-                        bestContour = cnt;
-                    }
+                    if(area > 20 && area > maxArea) { maxArea = area; bestContour = cnt; }
                 }
 
-                if (bestContour) {
+                if(bestContour) {
                     let rect = cv.boundingRect(bestContour);
-                    cv.rectangle(src, new cv.Point(rect.x, rect.y), new cv.Point(rect.x + rect.width, rect.y + rect.height), [0, 100, 255, 255], 3);
+                    cv.rectangle(src, new cv.Point(rect.x, rect.y), new cv.Point(rect.x+rect.width, rect.y+rect.height), [0,255,0,255], 2);
+                    
+                    let cx = rect.x + rect.width/2;
+                    let cy = rect.y + rect.height/2;
+                    // 座標更新
+                    latestX = Math.round((cx / canvas.width)*255);
+                    latestY = Math.round((cy / canvas.height)*255);
 
-                    let cx = rect.x + rect.width / 2;
-                    let cy = rect.y + rect.height / 2;
-                    latestX = Math.round((cx / canvas.width) * 255);
-                    latestY = Math.round((cy / canvas.height) * 255);
-
-                    // Mode 2: 自動追尾
-                    if (currentMode === 2) {
-                        sendBleData(new Uint8Array([HEADER_AUTO, latestX, latestY]));
+                    // Mode 2: 自動追尾送信 (間引きなし簡易実装)
+                    if(currentMode === 2 && bleCharacteristic) {
+                        // 簡易的な間引き
+                        if(!isSending && Math.random() > 0.5) {
+                            isSending = true;
+                            bleCharacteristic.writeValue(new Uint8Array([HEADER_AUTO, latestX, latestY]))
+                                .then(() => isSending=false).catch(()=>isSending=false);
+                        }
                     }
                 }
 
-                // Mode 1: ログ表示
-                if (currentMode === 1) {
-                    if (isRecording) {
-                        let currentTime = Date.now() - recordStartTime;
-                        recordedData.push({
-                            time: currentTime, input: currentDirectionStr,
-                            x: latestX, y: latestY,
-                            relX: latestX - originX, relY: latestY - originY
-                        });
-                        cv.circle(src, new cv.Point(30, 30), 10, [0, 0, 255, 255], -1);
-                        cv.putText(src, "REC", new cv.Point(50, 40), cv.FONT_HERSHEY_SIMPLEX, 0.8, [0, 0, 255, 255], 2);
-                    }
+                // Mode 1: ログ記録
+                if(currentMode === 1 && isRecording) {
+                    let t = Date.now() - recordStartTime;
+                    recordedData.push({ t:t, in:currentDirStr, x:latestX, y:latestY, rx:latestX-originX, ry:latestY-originY });
+                    cv.putText(src, "REC", new cv.Point(20,40), cv.FONT_HERSHEY_SIMPLEX, 1, [255,0,0,255], 2);
                 }
 
                 cv.imshow('canvas', src);
                 src.delete(); hsv.delete(); mask.delete(); low.delete(); high.delete(); contours.delete(); hierarchy.delete();
 
-            } catch (err) { console.error(err); } 
-            finally { requestAnimationFrame(processVideo); }
+            } catch(e){ console.log(e); }
+            requestAnimationFrame(processVideo);
         }
 
         // ==========================================
-        // 初期化 & イベント登録
+        // 7. 初期化
         // ==========================================
         window.onload = () => {
             video = document.getElementById('webcam');
             canvas = document.getElementById('canvas');
             ctx = canvas.getContext('2d', { willReadFrequently: true });
-            
+
             document.getElementById('startButton').onclick = startCamera;
             document.getElementById('connectButton').onclick = connectBluetooth;
+            document.getElementById('btn-update').onclick = sendParamUpdate;
+            
             document.getElementById('mode1Btn').onclick = () => setMode(1);
             document.getElementById('mode2Btn').onclick = () => setMode(2);
             document.getElementById('mode3Btn').onclick = () => setMode(3);
-            document.getElementById('saveBtn').onclick = saveCSV;
-            document.getElementById('clearBtn').onclick = clearLog;
-            document.getElementById('btn-update').onclick = sendParamUpdate;
 
-            // 十字キーのイベント設定 (タッチ & マウス両対応)
-            const dpadBtns = document.querySelectorAll('.d-btn');
-            dpadBtns.forEach(btn => {
-                const dirId = parseInt(btn.dataset.dir);
-                const dirName = btn.textContent; // ▲, ▼ etc...
-
-                // 押したとき
-                const startAction = (e) => {
-                    e.preventDefault(); // スマホでの拡大などを防止
-                    if (currentMode === 1) {
-                        // モード1: クリックでシーケンス開始 (連打防止込み)
-                        startRecordSequence(dirId, dirName);
-                    } else if (currentMode === 3) {
-                        // モード3: 押しっぱなしで動作
-                        handleBtnPress(dirId, dirName);
-                    }
-                };
-
-                // 離したとき
-                const stopAction = (e) => {
-                    e.preventDefault();
-                    if (currentMode === 3) {
-                        handleBtnRelease();
-                    }
-                };
-
-                btn.addEventListener('mousedown', startAction);
-                btn.addEventListener('touchstart', startAction, { passive: false });
-
-                btn.addEventListener('mouseup', stopAction);
-                btn.addEventListener('mouseleave', stopAction); // ボタン外に出たら停止
-                btn.addEventListener('touchend', stopAction, { passive: false });
-            });
-
-            // 初期モード設定
-            setMode(3); // 最初はManualモードにしておく
+            setupDpad();
+            setMode(3); // 起動時はMode 3
         };
     </script>
 </body>
