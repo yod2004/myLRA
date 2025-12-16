@@ -3,37 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Video Analysis & Controller</title>
+    <title>Video Analyzer with Orientation</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #222; color: #fff; touch-action: manipulation; }
         
         /* 映像表示エリア */
         canvas { 
-            border: 4px solid #444; /* デフォルトはグレー */
+            border: 4px solid #444;
             background-color: #000;
             width: 100%; max-width: 640px; height: auto; border-radius: 8px;
             display: none; margin: 0 auto;
         }
         video { display: none; }
 
-        /* ボタン共通 */
+        /* ボタンデザイン */
         button { cursor: pointer; border-radius: 6px; border: none; font-weight: bold; transition: 0.1s; -webkit-tap-highlight-color: transparent;}
         button:active { transform: scale(0.96); }
         button:disabled { background-color: #555 !important; color: #888 !important; cursor: not-allowed; transform: none; }
 
         .btn-sys { font-size: 1rem; padding: 12px 20px; margin: 5px; background-color: #607D8B; color: white; }
-        .btn-file { background-color: #E91E63; }
         
         /* モード切替タブ */
         .mode-tabs { margin: 20px 0; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap;}
         .tab { padding: 10px 15px; font-size: 1rem; opacity: 0.6; background: #444; color: #fff; border: 2px solid transparent;}
         
-        #mode1Btn.active { opacity: 1; background-color: #2196F3; border-color: #64B5F6; } /* 青 */
-        #mode2Btn.active { opacity: 1; background-color: #9C27B0; border-color: #BA68C8; } /* 紫 */
-        #mode3Btn.active { opacity: 1; background-color: #4CAF50; border-color: #81C784; } /* 緑 */
-        #mode4Btn.active { opacity: 1; background-color: #FF5722; border-color: #FFAB91; } /* オレンジ(動画解析) */
+        #mode1Btn.active { opacity: 1; background-color: #2196F3; border-color: #64B5F6; }
+        #mode2Btn.active { opacity: 1; background-color: #9C27B0; border-color: #BA68C8; }
+        #mode3Btn.active { opacity: 1; background-color: #4CAF50; border-color: #81C784; }
+        #mode4Btn.active { opacity: 1; background-color: #FF5722; border-color: #FFAB91; }
 
-        /* ファイル入力 */
+        /* ファイル入力エリア */
         #file-input-container { display: none; margin: 20px auto; padding: 15px; background: #333; border-radius: 8px; max-width: 400px; }
         input[type="file"] { margin-bottom: 10px; color: #fff; }
 
@@ -51,9 +50,7 @@
         }
         .d-btn:active { box-shadow: 0 0 0 #222; transform: translateY(4px); }
         .mode3-active .d-btn { border: 2px solid #4CAF50; color: #4CAF50; }
-        .mode3-active .d-btn:active { background: #4CAF50; color: white; }
         .mode1-active .d-btn { border: 2px solid #2196F3; color: #2196F3; }
-        .mode1-active .d-btn:active { background: #2196F3; color: white; }
 
         #btn-up    { top: 0; left: 85px; }
         #btn-down  { bottom: 0; left: 85px; }
@@ -78,7 +75,7 @@
     </style>
 </head>
 <body>
-    <h3>ESP32 & Video Analyzer</h3>
+    <h3>ESP32 & Video Analyzer (Angle)</h3>
     
     <div id="status">Bluetooth未接続</div>
     <div id="loading">OpenCV ロード中...</div>
@@ -100,12 +97,12 @@
 
     <div id="file-input-container">
         <div style="margin-bottom:5px; color:#FFAB91; font-weight:bold;">動画ファイルを選択</div>
+        <p style="font-size:0.8rem; margin:0 0 10px 0; color:#ddd;">※青色のテープを「長方形」に貼ると向きを検出します</p>
         <input type="file" id="videoInput" accept="video/*">
         <div id="video-controls">
             <button id="v-play" class="vid-btn">再生/一時停止</button>
             <button id="v-reset" class="vid-btn">最初に戻る</button>
         </div>
-        <p style="font-size:0.8rem; color:#ccc;">※再生すると自動で解析・記録されます</p>
     </div>
 
     <div id="dpad-area" class="mode3-active">
@@ -163,13 +160,14 @@
         
         let currentMode = 3; 
         let isSending = false;
-        let isVideoFileMode = false; // Mode 4フラグ
+        let isVideoFileMode = false;
 
         // ログ用
         let recordedData = [];
         let isRecording = false;
-        let recordStartTime = 0; // Mode1用
+        let recordStartTime = 0;
         let latestX=0, latestY=0;
+        let latestAngle = 0; // ★角度
         let currentDirStr = "";
 
         // ==========================================
@@ -185,7 +183,6 @@
             canvas = document.getElementById('canvas');
             ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-            // ボタンイベント
             document.getElementById('cameraButton').onclick = startWebcam;
             document.getElementById('connectButton').onclick = connectBluetooth;
             document.getElementById('btn-update').onclick = sendParamUpdate;
@@ -195,7 +192,6 @@
             document.getElementById('mode3Btn').onclick = () => setMode(3);
             document.getElementById('mode4Btn').onclick = () => setMode(4);
 
-            // 動画ファイル操作
             const videoInput = document.getElementById('videoInput');
             videoInput.addEventListener('change', handleFileSelect, false);
             
@@ -206,25 +202,22 @@
             document.getElementById('v-reset').onclick = () => {
                 videoElement.currentTime = 0;
                 videoElement.pause();
-                recordedData = []; // リセット時にデータもクリア
+                recordedData = []; 
                 updateLogCount();
             };
 
-            // 保存・クリア
             document.getElementById('saveBtn').onclick = saveCSV;
             document.getElementById('clearBtn').onclick = () => {
                 recordedData = []; updateLogCount();
             };
 
             setupDpad();
-            setMode(3); // 初期モード
-            
-            // ループ開始
+            setMode(3); 
             requestAnimationFrame(processLoop);
         };
 
         // ==========================================
-        // カメラ・動画ファイル処理
+        // カメラ・動画処理
         // ==========================================
         async function startWebcam() {
             if (!cvReady) return;
@@ -238,29 +231,21 @@
                 videoElement.play(); 
                 canvas.style.display = 'block';
                 document.getElementById('cameraButton').textContent = "Webcam動作中";
-                
-                // Mode 4にいたら強制的にMode 3に戻す
                 if(currentMode === 4) setMode(3);
-
             } catch (err) { alert("カメラエラー: " + err); }
         }
 
         function handleFileSelect(event) {
             const file = event.target.files[0];
             if (!file) return;
-            
             isVideoFileMode = true;
             const url = URL.createObjectURL(file);
             videoElement.srcObject = null;
             videoElement.src = url;
             videoElement.load();
-            
             canvas.style.display = 'block';
             document.getElementById('cameraButton').textContent = "動画ファイルモード";
-            
-            // 自動でモード4へ
             setMode(4);
-            // ログクリア
             recordedData = []; updateLogCount();
         }
 
@@ -269,8 +254,6 @@
         // ==========================================
         function setMode(mode) {
             currentMode = mode;
-            
-            // タブ表示
             document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
             document.getElementById(`mode${mode}Btn`).classList.add('active');
 
@@ -281,38 +264,32 @@
             const status = document.getElementById('status');
             const canvasEl = document.getElementById('canvas');
 
-            // クラスリセット
             dpad.classList.remove('mode1-active', 'mode3-active');
-
-            // 表示・非表示切り替え
             fileContainer.style.display = (mode === 4) ? "block" : "none";
-            paramArea.style.display = (mode === 4) ? "none" : "block"; // 動画解析中はパラメータ設定隠す
+            paramArea.style.display = (mode === 4) ? "none" : "block";
             
             if (mode === 3) {
-                status.textContent = "Mode 3: 動作確認 (Manual)";
+                status.textContent = "Mode 3: 動作確認";
                 status.style.color = "#4CAF50";
                 dpad.style.display = "block";
                 dpad.classList.add('mode3-active');
                 saveArea.style.display = "none";
                 canvasEl.style.borderColor = "#4CAF50";
-
             } else if (mode === 1) {
-                status.textContent = "Mode 1: 3秒記録 (Rec)";
+                status.textContent = "Mode 1: 3秒記録";
                 status.style.color = "#2196F3";
                 dpad.style.display = "block";
                 dpad.classList.add('mode1-active');
                 saveArea.style.display = "block";
                 canvasEl.style.borderColor = "#2196F3";
-
             } else if (mode === 2) {
-                status.textContent = "Mode 2: 自動追尾 (Auto)";
+                status.textContent = "Mode 2: 自動追尾";
                 status.style.color = "#9C27B0";
                 dpad.style.display = "none";
                 saveArea.style.display = "none";
                 canvasEl.style.borderColor = "#9C27B0";
-
             } else if (mode === 4) {
-                status.textContent = "Mode 4: 動画ファイル解析";
+                status.textContent = "Mode 4: 動画解析 (角度対応)";
                 status.style.color = "#FF5722";
                 dpad.style.display = "none";
                 saveArea.style.display = "block";
@@ -321,7 +298,7 @@
         }
 
         // ==========================================
-        // メインループ (Webcam & File共用)
+        // 画像処理ループ (角度検出付き)
         // ==========================================
         function processLoop() {
             try {
@@ -330,7 +307,6 @@
                     return;
                 }
 
-                // 1. 描画
                 if (canvas.width !== 640) {
                     let aspect = videoElement.videoHeight / videoElement.videoWidth;
                     if(isNaN(aspect)) aspect = 0.75;
@@ -338,14 +314,13 @@
                 }
                 ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
 
-                // 2. OpenCV処理
                 let src = cv.matFromImageData(ctx.getImageData(0, 0, canvas.width, canvas.height));
                 let hsv = new cv.Mat();
                 cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
                 cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
 
                 let mask = new cv.Mat();
-                // 青色検出 (H:100-140)
+                // 青色検出
                 let low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), new cv.Scalar(100, 60, 20));
                 let high = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), new cv.Scalar(140, 255, 255));
                 cv.inRange(hsv, low, high, mask);
@@ -360,22 +335,39 @@
                 for (let i = 0; i < contours.size(); i++) {
                     let cnt = contours.get(i);
                     let area = cv.contourArea(cnt, false);
-                    if (area > 20 && area > maxArea) {
+                    if (area > 50 && area > maxArea) { // 面積閾値を少し上げる
                         maxArea = area;
                         bestContour = cnt;
                     }
                 }
 
                 if (bestContour) {
+                    // --- 1. 重心 (X, Y) ---
                     let rect = cv.boundingRect(bestContour);
-                    cv.rectangle(src, new cv.Point(rect.x, rect.y), new cv.Point(rect.x+rect.width, rect.y+rect.height), [0, 255, 0, 255], 2);
-                    
                     let cx = rect.x + rect.width / 2;
                     let cy = rect.y + rect.height / 2;
                     latestX = Math.round((cx / canvas.width) * 255);
                     latestY = Math.round((cy / canvas.height) * 255);
 
-                    // --- Mode 2 (Webcam): 自動追尾送信 ---
+                    // --- 2. 角度 (Angle) by minAreaRect ---
+                    // 回転矩形を取得
+                    let rotatedRect = cv.minAreaRect(bestContour);
+                    
+                    // 頂点を計算して描画
+                    let vertices = cv.RotatedRect.points(rotatedRect);
+                    for (let i = 0; i < 4; i++) {
+                        cv.line(src, vertices[i], vertices[(i + 1) % 4], [255, 0, 0, 255], 2); // 赤線
+                    }
+
+                    // 角度取得 (OpenCVのバージョンにより定義が異なりますが、概ね長辺の角度)
+                    // 長方形の場合、0-180の範囲で変化します
+                    let angle = rotatedRect.angle;
+                    if (rotatedRect.size.width < rotatedRect.size.height) {
+                        angle = angle + 90;
+                    }
+                    latestAngle = Math.round(angle);
+
+                    // --- 記録 & 送信 ---
                     if (currentMode === 2 && bleCharacteristic && !isVideoFileMode) {
                         if (!isSending && Math.random() > 0.5) {
                             isSending = true;
@@ -385,40 +377,33 @@
                     }
                 }
 
-                // --- Mode 1 (Webcam): リアルタイム記録 ---
+                // Mode 1: 記録
                 if (currentMode === 1 && isRecording) {
                     let t = Date.now() - recordStartTime;
-                    recordedData.push({ t: t, in: currentDirStr, x: latestX, y: latestY });
+                    recordedData.push({ t: t, in: currentDirStr, x: latestX, y: latestY, angle: latestAngle });
                     cv.putText(src, "REC", new cv.Point(20, 40), cv.FONT_HERSHEY_SIMPLEX, 1, [255, 0, 0, 255], 2);
                 }
 
-                // --- Mode 4 (File): 動画解析記録 ---
+                // Mode 4: 記録
                 if (currentMode === 4 && !videoElement.paused) {
-                    // 動画の現在の時間(秒)を取得してミリ秒に変換
                     let t = Math.round(videoElement.currentTime * 1000);
-                    
-                    // 重複データの簡易防止（同じ時間のデータが既に末尾にあればスキップ）
                     let last = recordedData[recordedData.length - 1];
                     if (!last || last.t !== t) {
-                        recordedData.push({ t: t, in: "Video", x: latestX, y: latestY });
+                        recordedData.push({ t: t, in: "Video", x: latestX, y: latestY, angle: latestAngle });
                     }
-                    
-                    cv.putText(src, `Time: ${t}ms`, new cv.Point(20, 40), cv.FONT_HERSHEY_SIMPLEX, 0.8, [255, 255, 255, 255], 2);
+                    cv.putText(src, `Time: ${t}ms Ang: ${latestAngle}`, new cv.Point(20, 40), cv.FONT_HERSHEY_SIMPLEX, 0.7, [255, 255, 255, 255], 2);
                     updateLogCount();
                 }
 
                 cv.imshow('canvas', src);
-                
-                // メモリ解放
                 src.delete(); hsv.delete(); mask.delete(); low.delete(); high.delete(); contours.delete(); hierarchy.delete();
 
             } catch (e) { console.log(e); }
-            
             requestAnimationFrame(processLoop);
         }
 
         // ==========================================
-        // Bluetooth & UI (既存)
+        // Bluetooth & UI
         // ==========================================
         async function connectBluetooth() {
             const SERVICE_UUID = '0000aaaa-0000-1000-8000-00805f9b34fb';
@@ -432,16 +417,12 @@
                 bleCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
                 document.getElementById('status').textContent = "Bluetooth接続OK";
                 document.getElementById('status').style.color = "#4CAF50";
-            } catch (err) { 
-                alert("接続失敗: " + err); 
-            }
+            } catch (err) { alert("接続失敗: " + err); }
         }
 
         async function sendManualCommand(id) {
-            if (!bleCharacteristic || isVideoFileMode) return; // 動画解析中は送信しない
-            try {
-                await bleCharacteristic.writeValue(new Uint8Array([HEADER_MANUAL, id, 0]));
-            } catch(e) {}
+            if (!bleCharacteristic || isVideoFileMode) return;
+            try { await bleCharacteristic.writeValue(new Uint8Array([HEADER_MANUAL, id, 0])); } catch(e) {}
         }
 
         async function sendParamUpdate() {
@@ -518,9 +499,9 @@
 
         function saveCSV() {
             if (recordedData.length === 0) { alert("データなし"); return; }
-            let csv = "Time(ms),Input,RawX,RawY\n";
+            let csv = "Time(ms),Input,RawX,RawY,Angle\n"; // ★Angle追加
             recordedData.forEach(r => {
-                csv += `${r.t},${r.in},${r.x},${r.y}\n`;
+                csv += `${r.t},${r.in},${r.x},${r.y},${r.angle}\n`;
             });
             const blob = new Blob([csv], { type: 'text/csv' });
             const url = window.URL.createObjectURL(blob);
