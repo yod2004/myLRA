@@ -3,27 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Video Analyzer with Orientation</title>
+    <title>Video Analyzer (2-Marker Direction)</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #222; color: #fff; touch-action: manipulation; }
         
-        /* 映像表示エリア */
         canvas { 
-            border: 4px solid #444;
-            background-color: #000;
+            border: 4px solid #444; background-color: #000;
             width: 100%; max-width: 640px; height: auto; border-radius: 8px;
             display: none; margin: 0 auto;
         }
         video { display: none; }
 
-        /* ボタンデザイン */
         button { cursor: pointer; border-radius: 6px; border: none; font-weight: bold; transition: 0.1s; -webkit-tap-highlight-color: transparent;}
         button:active { transform: scale(0.96); }
         button:disabled { background-color: #555 !important; color: #888 !important; cursor: not-allowed; transform: none; }
 
         .btn-sys { font-size: 1rem; padding: 12px 20px; margin: 5px; background-color: #607D8B; color: white; }
         
-        /* モード切替タブ */
         .mode-tabs { margin: 20px 0; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap;}
         .tab { padding: 10px 15px; font-size: 1rem; opacity: 0.6; background: #444; color: #fff; border: 2px solid transparent;}
         
@@ -32,15 +28,9 @@
         #mode3Btn.active { opacity: 1; background-color: #4CAF50; border-color: #81C784; }
         #mode4Btn.active { opacity: 1; background-color: #FF5722; border-color: #FFAB91; }
 
-        /* ファイル入力エリア */
         #file-input-container { display: none; margin: 20px auto; padding: 15px; background: #333; border-radius: 8px; max-width: 400px; }
-        input[type="file"] { margin-bottom: 10px; color: #fff; }
-
-        /* 再生コントロール */
-        #video-controls { display: none; margin-top: 10px; }
-        .vid-btn { padding: 5px 15px; font-size: 0.9rem; background: #555; color: white; }
-
-        /* 十字キーエリア */
+        
+        /* 十字キー */
         #dpad-area { display: none; margin: 30px auto; width: 240px; height: 240px; position: relative; }
         .d-btn { 
             position: absolute; width: 70px; height: 70px; 
@@ -51,31 +41,25 @@
         .d-btn:active { box-shadow: 0 0 0 #222; transform: translateY(4px); }
         .mode3-active .d-btn { border: 2px solid #4CAF50; color: #4CAF50; }
         .mode1-active .d-btn { border: 2px solid #2196F3; color: #2196F3; }
+        #btn-up { top: 0; left: 85px; } #btn-down { bottom: 0; left: 85px; }
+        #btn-left { top: 85px; left: 0; } #btn-right { top: 85px; right: 0; }
 
-        #btn-up    { top: 0; left: 85px; }
-        #btn-down  { bottom: 0; left: 85px; }
-        #btn-left  { top: 85px; left: 0; }
-        #btn-right { top: 85px; right: 0; }
-
-        /* パラメータ設定エリア */
         #param-area { background-color: #333; border: 1px solid #555; border-radius: 8px; padding: 15px; max-width: 350px; margin: 20px auto; }
         .param-row { display: flex; justify-content: space-between; margin-bottom: 10px; gap: 10px; }
         .param-group { display: flex; flex-direction: column; align-items: center; width: 48%; }
-        .param-group label { font-size: 0.8rem; color: #ccc; margin-bottom: 5px; }
-        .param-input { width: 100%; padding: 8px; background: #222; border: 1px solid #444; color: white; border-radius: 4px; text-align: center; font-size: 1.1rem; }
-        #btn-update { width: 100%; padding: 12px; background-color: #FF9800; color: white; font-size: 1rem; margin-top: 5px; transition: background-color 0.3s;}
+        .param-input { width: 100%; padding: 8px; background: #222; border: 1px solid #444; color: white; border-radius: 4px; text-align: center; }
+        #btn-update { width: 100%; padding: 12px; background-color: #FF9800; color: white; margin-top: 5px; }
 
-        /* CSV保存エリア */
         #save-area { margin-top: 20px; display: none; }
         .btn-save { padding: 10px 20px; background-color: #E91E63; color: white; }
         .btn-clear { padding: 10px 20px; background-color: #9E9E9E; color: white; margin-left: 10px; }
 
-        #status { font-size: 1.1rem; margin-bottom: 10px; color: #aaa; min-height: 1.5em; font-weight: bold; }
+        #status { font-size: 1.1rem; margin-bottom: 10px; color: #aaa; font-weight: bold; }
         #loading { color: #aaa; margin-bottom: 10px; display:none; }
     </style>
 </head>
 <body>
-    <h3>ESP32 & Video Analyzer (Angle)</h3>
+    <h3>2-Marker Tracking (Big & Small)</h3>
     
     <div id="status">Bluetooth未接続</div>
     <div id="loading">OpenCV ロード中...</div>
@@ -97,11 +81,11 @@
 
     <div id="file-input-container">
         <div style="margin-bottom:5px; color:#FFAB91; font-weight:bold;">動画ファイルを選択</div>
-        <p style="font-size:0.8rem; margin:0 0 10px 0; color:#ddd;">※青色のテープを「長方形」に貼ると向きを検出します</p>
-        <input type="file" id="videoInput" accept="video/*">
-        <div id="video-controls">
-            <button id="v-play" class="vid-btn">再生/一時停止</button>
-            <button id="v-reset" class="vid-btn">最初に戻る</button>
+        <p style="font-size:0.8rem; color:#ccc; margin:5px;">※「大(中心)」と「小(前)」の2つの青マーカーを貼ってください</p>
+        <input type="file" id="videoInput" accept="video/*" style="color:white;">
+        <div style="margin-top:10px;">
+            <button id="v-play" class="btn-sys" style="padding:5px 15px;">再生/停止</button>
+            <button id="v-reset" class="btn-sys" style="padding:5px 15px;">リセット</button>
         </div>
     </div>
 
@@ -115,26 +99,14 @@
     <div id="param-area">
         <div style="font-weight:bold; margin-bottom:10px; color:#FF9800;">パラメータ設定</div>
         <div class="param-row">
-            <div class="param-group">
-                <label>Res 1 (Up/Down)</label>
-                <input type="number" id="p-res1" class="param-input" value="5" min="1">
-            </div>
-            <div class="param-group">
-                <label>Rep 1 (Up/Down)</label>
-                <input type="number" id="p-rep1" class="param-input" value="4" min="0">
-            </div>
+            <div class="param-group"><label>Res 1</label><input type="number" id="p-res1" class="param-input" value="5"></div>
+            <div class="param-group"><label>Rep 1</label><input type="number" id="p-rep1" class="param-input" value="4"></div>
         </div>
         <div class="param-row">
-            <div class="param-group">
-                <label>Res 2 (L/R)</label>
-                <input type="number" id="p-res2" class="param-input" value="10" min="1">
-            </div>
-            <div class="param-group">
-                <label>Rep 2 (L/R)</label>
-                <input type="number" id="p-rep2" class="param-input" value="4" min="0">
-            </div>
+            <div class="param-group"><label>Res 2</label><input type="number" id="p-res2" class="param-input" value="10"></div>
+            <div class="param-group"><label>Rep 2</label><input type="number" id="p-rep2" class="param-input" value="4"></div>
         </div>
-        <button id="btn-update">パラメータを送信して更新</button>
+        <button id="btn-update">パラメータ更新</button>
     </div>
 
     <div id="save-area">
@@ -146,37 +118,15 @@
     <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady()"></script>
 
     <script>
-        // ==========================================
-        // 定数・変数
-        // ==========================================
-        const HEADER_MANUAL = 0x01;
-        const HEADER_AUTO   = 0x02;
-        const HEADER_PARAM  = 0x03;
-        const DIR_STOP      = 0;
-
+        const HEADER_MANUAL = 0x01, HEADER_AUTO = 0x02, HEADER_PARAM = 0x03, DIR_STOP = 0;
         let videoElement, canvas, ctx;
         let bleDevice, bleCharacteristic;
         let cvReady = false;
-        
-        let currentMode = 3; 
-        let isSending = false;
-        let isVideoFileMode = false;
+        let currentMode = 3, isSending = false, isVideoFileMode = false;
+        let recordedData = [], isRecording = false, recordStartTime = 0;
+        let latestX=0, latestY=0, latestAngle=0, currentDirStr="";
 
-        // ログ用
-        let recordedData = [];
-        let isRecording = false;
-        let recordStartTime = 0;
-        let latestX=0, latestY=0;
-        let latestAngle = 0; // ★角度
-        let currentDirStr = "";
-
-        // ==========================================
-        // 初期化
-        // ==========================================
-        function onOpenCvReady() {
-            cvReady = true;
-            document.getElementById('loading').style.display = 'none';
-        }
+        function onOpenCvReady() { cvReady = true; document.getElementById('loading').style.display = 'none'; }
 
         window.onload = () => {
             videoElement = document.getElementById('videoElement');
@@ -187,46 +137,26 @@
             document.getElementById('connectButton').onclick = connectBluetooth;
             document.getElementById('btn-update').onclick = sendParamUpdate;
             
-            document.getElementById('mode1Btn').onclick = () => setMode(1);
-            document.getElementById('mode2Btn').onclick = () => setMode(2);
-            document.getElementById('mode3Btn').onclick = () => setMode(3);
-            document.getElementById('mode4Btn').onclick = () => setMode(4);
+            [1,2,3,4].forEach(m => document.getElementById(`mode${m}Btn`).onclick = () => setMode(m));
 
             const videoInput = document.getElementById('videoInput');
             videoInput.addEventListener('change', handleFileSelect, false);
             
-            document.getElementById('v-play').onclick = () => {
-                if(videoElement.paused) videoElement.play();
-                else videoElement.pause();
-            };
-            document.getElementById('v-reset').onclick = () => {
-                videoElement.currentTime = 0;
-                videoElement.pause();
-                recordedData = []; 
-                updateLogCount();
-            };
-
+            document.getElementById('v-play').onclick = () => videoElement.paused ? videoElement.play() : videoElement.pause();
+            document.getElementById('v-reset').onclick = () => { videoElement.currentTime = 0; videoElement.pause(); recordedData=[]; updateLogCount(); };
             document.getElementById('saveBtn').onclick = saveCSV;
-            document.getElementById('clearBtn').onclick = () => {
-                recordedData = []; updateLogCount();
-            };
+            document.getElementById('clearBtn').onclick = () => { recordedData=[]; updateLogCount(); };
 
             setupDpad();
             setMode(3); 
             requestAnimationFrame(processLoop);
         };
 
-        // ==========================================
-        // カメラ・動画処理
-        // ==========================================
         async function startWebcam() {
             if (!cvReady) return;
             try {
                 isVideoFileMode = false;
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { width: { ideal: 640 }, height: { ideal: 480 } }, 
-                    audio: false 
-                });
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
                 videoElement.srcObject = stream;
                 videoElement.play(); 
                 canvas.style.display = 'block';
@@ -239,19 +169,14 @@
             const file = event.target.files[0];
             if (!file) return;
             isVideoFileMode = true;
-            const url = URL.createObjectURL(file);
             videoElement.srcObject = null;
-            videoElement.src = url;
+            videoElement.src = URL.createObjectURL(file);
             videoElement.load();
             canvas.style.display = 'block';
             document.getElementById('cameraButton').textContent = "動画ファイルモード";
-            setMode(4);
-            recordedData = []; updateLogCount();
+            setMode(4); recordedData = []; updateLogCount();
         }
 
-        // ==========================================
-        // モード制御
-        // ==========================================
         function setMode(mode) {
             currentMode = mode;
             document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
@@ -268,44 +193,22 @@
             fileContainer.style.display = (mode === 4) ? "block" : "none";
             paramArea.style.display = (mode === 4) ? "none" : "block";
             
-            if (mode === 3) {
-                status.textContent = "Mode 3: 動作確認";
-                status.style.color = "#4CAF50";
-                dpad.style.display = "block";
-                dpad.classList.add('mode3-active');
-                saveArea.style.display = "none";
-                canvasEl.style.borderColor = "#4CAF50";
-            } else if (mode === 1) {
-                status.textContent = "Mode 1: 3秒記録";
-                status.style.color = "#2196F3";
-                dpad.style.display = "block";
-                dpad.classList.add('mode1-active');
-                saveArea.style.display = "block";
-                canvasEl.style.borderColor = "#2196F3";
-            } else if (mode === 2) {
-                status.textContent = "Mode 2: 自動追尾";
-                status.style.color = "#9C27B0";
-                dpad.style.display = "none";
-                saveArea.style.display = "none";
-                canvasEl.style.borderColor = "#9C27B0";
-            } else if (mode === 4) {
-                status.textContent = "Mode 4: 動画解析 (角度対応)";
-                status.style.color = "#FF5722";
-                dpad.style.display = "none";
-                saveArea.style.display = "block";
-                canvasEl.style.borderColor = "#FF5722";
-            }
+            let color = "#fff";
+            if (mode === 3) { status.textContent="Mode 3: 動作確認"; color="#4CAF50"; dpad.style.display="block"; dpad.classList.add('mode3-active'); saveArea.style.display="none"; }
+            else if (mode === 1) { status.textContent="Mode 1: 3秒記録"; color="#2196F3"; dpad.style.display="block"; dpad.classList.add('mode1-active'); saveArea.style.display="block"; }
+            else if (mode === 2) { status.textContent="Mode 2: 自動追尾"; color="#9C27B0"; dpad.style.display="none"; saveArea.style.display="none"; }
+            else if (mode === 4) { status.textContent="Mode 4: 動画解析(大小マーカー)"; color="#FF5722"; dpad.style.display="none"; saveArea.style.display="block"; }
+            
+            status.style.color = color;
+            canvasEl.style.borderColor = color;
         }
 
         // ==========================================
-        // 画像処理ループ (角度検出付き)
+        // 画像処理 (大小2マーカー追尾)
         // ==========================================
         function processLoop() {
             try {
-                if (!cvReady || videoElement.paused || videoElement.ended) {
-                    requestAnimationFrame(processLoop);
-                    return;
-                }
+                if (!cvReady || videoElement.paused || videoElement.ended) { requestAnimationFrame(processLoop); return; }
 
                 if (canvas.width !== 640) {
                     let aspect = videoElement.videoHeight / videoElement.videoWidth;
@@ -320,54 +223,72 @@
                 cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
 
                 let mask = new cv.Mat();
-                // 青色検出
                 let low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), new cv.Scalar(100, 60, 20));
                 let high = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), new cv.Scalar(140, 255, 255));
                 cv.inRange(hsv, low, high, mask);
 
-                // 輪郭抽出
                 let contours = new cv.MatVector();
                 let hierarchy = new cv.Mat();
                 cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-                let bestContour = null;
-                let maxArea = 0;
+                // --- 輪郭を面積順にソート ---
+                let contourList = [];
                 for (let i = 0; i < contours.size(); i++) {
                     let cnt = contours.get(i);
                     let area = cv.contourArea(cnt, false);
-                    if (area > 50 && area > maxArea) { // 面積閾値を少し上げる
-                        maxArea = area;
-                        bestContour = cnt;
+                    if (area > 20) { // ノイズ除去
+                        contourList.push({ cnt: cnt, area: area });
                     }
                 }
+                // 面積が大きい順
+                contourList.sort((a, b) => b.area - a.area);
 
-                if (bestContour) {
-                    // --- 1. 重心 (X, Y) ---
-                    let rect = cv.boundingRect(bestContour);
-                    let cx = rect.x + rect.width / 2;
-                    let cy = rect.y + rect.height / 2;
-                    latestX = Math.round((cx / canvas.width) * 255);
-                    latestY = Math.round((cy / canvas.height) * 255);
+                let hasAngle = false;
 
-                    // --- 2. 角度 (Angle) by minAreaRect ---
-                    // 回転矩形を取得
-                    let rotatedRect = cv.minAreaRect(bestContour);
+                if (contourList.length > 0) {
+                    // 1. 一番大きいマーカー (胴体・中心)
+                    let bigCnt = contourList[0].cnt;
+                    let M_big = cv.moments(bigCnt);
+                    let cx_big = M_big.m10 / M_big.m00;
+                    let cy_big = M_big.m01 / M_big.m00;
+
+                    latestX = Math.round((cx_big / canvas.width) * 255);
+                    latestY = Math.round((cy_big / canvas.height) * 255);
+
+                    // 描画: 胴体は緑丸
+                    cv.circle(src, new cv.Point(cx_big, cy_big), 5, [0, 255, 0, 255], -1);
+
+                    // 2. 二番目に大きいマーカー (頭・前) があれば角度計算
+                    if (contourList.length >= 2) {
+                        let smallCnt = contourList[1].cnt;
+                        let M_small = cv.moments(smallCnt);
+                        let cx_small = M_small.m10 / M_small.m00;
+                        let cy_small = M_small.m01 / M_small.m00;
+
+                        // 描画: 頭は黄色丸
+                        cv.circle(src, new cv.Point(cx_small, cy_small), 3, [255, 255, 0, 255], -1);
+
+                        // 角度計算 (胴体 -> 頭 のベクトル)
+                        // Math.atan2(y, x) はラジアン (-PI ~ PI)
+                        let dx = cx_small - cx_big;
+                        let dy = cy_small - cy_big;
+                        let rad = Math.atan2(dy, dx);
+                        let deg = rad * (180 / Math.PI);
+                        
+                        // 0〜360度に正規化 (右=0, 下=90, 左=180, 上=270)
+                        // OpenCV座標系はYが下向き正であることに注意
+                        if (deg < 0) deg += 360;
+                        latestAngle = Math.round(deg);
+                        hasAngle = true;
+
+                        // 矢印描画
+                        cv.arrowedLine(src, new cv.Point(cx_big, cy_big), new cv.Point(cx_small, cy_small), [255, 0, 0, 255], 2);
+                    } else {
+                        // マーカーが1つしかない場合
+                        latestAngle = 0; // または前の値を保持
+                    }
                     
-                    // 頂点を計算して描画
-                    let vertices = cv.RotatedRect.points(rotatedRect);
-                    for (let i = 0; i < 4; i++) {
-                        cv.line(src, vertices[i], vertices[(i + 1) % 4], [255, 0, 0, 255], 2); // 赤線
-                    }
-
-                    // 角度取得 (OpenCVのバージョンにより定義が異なりますが、概ね長辺の角度)
-                    // 長方形の場合、0-180の範囲で変化します
-                    let angle = rotatedRect.angle;
-                    if (rotatedRect.size.width < rotatedRect.size.height) {
-                        angle = angle + 90;
-                    }
-                    latestAngle = Math.round(angle);
-
-                    // --- 記録 & 送信 ---
+                    // --- 送信 (Mode 2) ---
                     if (currentMode === 2 && bleCharacteristic && !isVideoFileMode) {
                         if (!isSending && Math.random() > 0.5) {
                             isSending = true;
@@ -377,23 +298,24 @@
                     }
                 }
 
-                // Mode 1: 記録
+                // --- 記録 & 表示 ---
+                let infoText = "";
                 if (currentMode === 1 && isRecording) {
                     let t = Date.now() - recordStartTime;
                     recordedData.push({ t: t, in: currentDirStr, x: latestX, y: latestY, angle: latestAngle });
-                    cv.putText(src, "REC", new cv.Point(20, 40), cv.FONT_HERSHEY_SIMPLEX, 1, [255, 0, 0, 255], 2);
-                }
-
-                // Mode 4: 記録
-                if (currentMode === 4 && !videoElement.paused) {
+                    infoText = "REC";
+                } else if (currentMode === 4 && !videoElement.paused) {
                     let t = Math.round(videoElement.currentTime * 1000);
                     let last = recordedData[recordedData.length - 1];
                     if (!last || last.t !== t) {
                         recordedData.push({ t: t, in: "Video", x: latestX, y: latestY, angle: latestAngle });
                     }
-                    cv.putText(src, `Time: ${t}ms Ang: ${latestAngle}`, new cv.Point(20, 40), cv.FONT_HERSHEY_SIMPLEX, 0.7, [255, 255, 255, 255], 2);
+                    infoText = `Time:${t}`;
                     updateLogCount();
                 }
+
+                if (infoText) cv.putText(src, infoText, new cv.Point(20, 40), cv.FONT_HERSHEY_SIMPLEX, 0.8, [255, 255, 255, 255], 2);
+                if (hasAngle) cv.putText(src, `Ang:${latestAngle}`, new cv.Point(20, 70), cv.FONT_HERSHEY_SIMPLEX, 0.8, [255, 255, 0, 255], 2);
 
                 cv.imshow('canvas', src);
                 src.delete(); hsv.delete(); mask.delete(); low.delete(); high.delete(); contours.delete(); hierarchy.delete();
@@ -409,9 +331,7 @@
             const SERVICE_UUID = '0000aaaa-0000-1000-8000-00805f9b34fb';
             const CHARACTERISTIC_UUID = '0000bbbb-0000-1000-8000-00805f9b34fb';
             try {
-                bleDevice = await navigator.bluetooth.requestDevice({
-                    acceptAllDevices: true, optionalServices: [SERVICE_UUID]
-                });
+                bleDevice = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [SERVICE_UUID] });
                 const server = await bleDevice.gatt.connect();
                 const service = await server.getPrimaryService(SERVICE_UUID);
                 bleCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
@@ -428,86 +348,51 @@
         async function sendParamUpdate() {
             const btn = document.getElementById('btn-update');
             if (!bleCharacteristic) { 
-                btn.textContent = "未接続です";
-                btn.style.backgroundColor = "#9E9E9E"; 
-                setTimeout(() => { btn.textContent = "パラメータを送信して更新"; btn.style.backgroundColor = "#FF9800"; }, 1000);
+                btn.textContent = "未接続です"; btn.style.backgroundColor = "#9E9E9E"; 
+                setTimeout(() => { btn.textContent = "パラメータ更新"; btn.style.backgroundColor = "#FF9800"; }, 1000);
                 return; 
             }
-            const r1 = parseInt(document.getElementById('p-res1').value) || 5;
-            const p1 = parseInt(document.getElementById('p-rep1').value) || 4;
-            const r2 = parseInt(document.getElementById('p-res2').value) || 10;
-            const p2 = parseInt(document.getElementById('p-rep2').value) || 4;
+            const r1 = parseInt(document.getElementById('p-res1').value)||5;
+            const p1 = parseInt(document.getElementById('p-rep1').value)||4;
+            const r2 = parseInt(document.getElementById('p-res2').value)||10;
+            const p2 = parseInt(document.getElementById('p-rep2').value)||4;
             try {
                 await bleCharacteristic.writeValue(new Uint8Array([HEADER_PARAM, r1, p1, r2, p2]));
-                btn.textContent = "更新完了!";
-                btn.style.backgroundColor = "#4CAF50";
-                setTimeout(() => { btn.textContent = "パラメータを送信して更新"; btn.style.backgroundColor = "#FF9800"; }, 1000);
+                btn.textContent = "更新完了!"; btn.style.backgroundColor = "#4CAF50";
+                setTimeout(() => { btn.textContent = "パラメータ更新"; btn.style.backgroundColor = "#FF9800"; }, 1000);
             } catch (e) {
-                btn.textContent = "送信エラー";
-                btn.style.backgroundColor = "#f44336";
-                setTimeout(() => { btn.textContent = "パラメータを送信して更新"; btn.style.backgroundColor = "#FF9800"; }, 1000);
+                btn.textContent = "エラー"; btn.style.backgroundColor = "#f44336";
+                setTimeout(() => { btn.textContent = "パラメータ更新"; btn.style.backgroundColor = "#FF9800"; }, 1000);
             }
-        }
-
-        function startRecordSequence(id, name) {
-            if (isRecording || isVideoFileMode) return;
-            isRecording = true;
-            recordStartTime = Date.now();
-            currentDirStr = name;
-            sendManualCommand(id);
-            document.getElementById('status').textContent = `REC中: ${name}`;
-            setTimeout(() => {
-                sendManualCommand(DIR_STOP);
-                isRecording = false;
-                document.getElementById('status').textContent = "Mode 1: 記録完了";
-                updateLogCount();
-            }, 3000);
         }
 
         function setupDpad() {
             const btns = document.querySelectorAll('.d-btn');
             btns.forEach(btn => {
-                const id = parseInt(btn.dataset.dir);
-                const name = btn.textContent;
-                const pressHandler = (e) => {
+                const id = parseInt(btn.dataset.dir), name = btn.textContent;
+                const press = (e) => {
                     e.preventDefault(); 
-                    if (currentMode === 3) {
-                        sendManualCommand(id);
-                        document.getElementById('status').textContent = `動作中: ${name}`;
-                    } else if (currentMode === 1) {
-                        startRecordSequence(id, name);
+                    if(currentMode===3) { sendManualCommand(id); document.getElementById('status').textContent = `動作中: ${name}`; }
+                    else if(currentMode===1 && !isRecording && !isVideoFileMode) {
+                        isRecording=true; recordStartTime=Date.now(); currentDirStr=name; sendManualCommand(id);
+                        document.getElementById('status').textContent = `REC中: ${name}`;
+                        setTimeout(()=>{ sendManualCommand(DIR_STOP); isRecording=false; document.getElementById('status').textContent="完了"; updateLogCount(); }, 3000);
                     }
                 };
-                const releaseHandler = (e) => {
-                    e.preventDefault();
-                    if (currentMode === 3) {
-                        sendManualCommand(DIR_STOP);
-                        document.getElementById('status').textContent = "Mode 3: 待機中";
-                    }
-                };
-                btn.addEventListener('mousedown', pressHandler);
-                btn.addEventListener('touchstart', pressHandler, { passive: false });
-                btn.addEventListener('mouseup', releaseHandler);
-                btn.addEventListener('mouseleave', releaseHandler);
-                btn.addEventListener('touchend', releaseHandler);
+                const release = (e) => { e.preventDefault(); if(currentMode===3) { sendManualCommand(DIR_STOP); document.getElementById('status').textContent="待機中"; } };
+                ['mousedown','touchstart'].forEach(ev=>btn.addEventListener(ev, press, {passive:false}));
+                ['mouseup','mouseleave','touchend'].forEach(ev=>btn.addEventListener(ev, release));
             });
         }
 
-        function updateLogCount() {
-            document.getElementById('log-count').textContent = `データ数: ${recordedData.length}行`;
-        }
-
+        function updateLogCount() { document.getElementById('log-count').textContent = `データ数: ${recordedData.length}行`; }
         function saveCSV() {
-            if (recordedData.length === 0) { alert("データなし"); return; }
-            let csv = "Time(ms),Input,RawX,RawY,Angle\n"; // ★Angle追加
-            recordedData.forEach(r => {
-                csv += `${r.t},${r.in},${r.x},${r.y},${r.angle}\n`;
-            });
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = window.URL.createObjectURL(blob);
+            if (recordedData.length===0) { alert("データなし"); return; }
+            let csv = "Time(ms),Input,RawX,RawY,Angle(deg)\n";
+            recordedData.forEach(r => csv += `${r.t},${r.in},${r.x},${r.y},${r.angle}\n`);
             const a = document.createElement('a');
-            a.href = url; a.download = `log_${Date.now()}.csv`;
-            a.click();
+            a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
+            a.download = `log_${Date.now()}.csv`; a.click();
         }
     </script>
 </body>
