@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Video Analyzer (2-Marker Direction)</title>
+    <title>Video Analyzer (Resolution Display)</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #222; color: #fff; touch-action: manipulation; }
         
@@ -55,14 +55,18 @@
         .btn-clear { padding: 10px 20px; background-color: #9E9E9E; color: white; margin-left: 10px; }
 
         #status { font-size: 1.1rem; margin-bottom: 10px; color: #aaa; font-weight: bold; }
+        /* 解像度表示用 */
+        #resolution-display { font-size: 0.9rem; color: #aaa; margin-bottom: 5px; min-height: 1.2em; }
         #loading { color: #aaa; margin-bottom: 10px; display:none; }
     </style>
 </head>
 <body>
-    <h3>2-Marker Tracking (Big & Small)</h3>
+    <h3>2-Marker Tracking & Resolution</h3>
     
     <div id="status">Bluetooth未接続</div>
     <div id="loading">OpenCV ロード中...</div>
+
+    <div id="resolution-display">Resolution: - x -</div>
 
     <canvas id="canvas"></canvas>
     <video id="videoElement" playsinline controls style="display:none;"></video>
@@ -208,7 +212,15 @@
         // ==========================================
         function processLoop() {
             try {
-                if (!cvReady || videoElement.paused || videoElement.ended) { requestAnimationFrame(processLoop); return; }
+                if (!cvReady) { requestAnimationFrame(processLoop); return; }
+
+                // --- 解像度表示の更新 ---
+                if (videoElement.videoWidth > 0) {
+                    const resText = `Resolution: ${videoElement.videoWidth} x ${videoElement.videoHeight}`;
+                    document.getElementById('resolution-display').textContent = resText;
+                }
+
+                if (videoElement.paused || videoElement.ended) { requestAnimationFrame(processLoop); return; }
 
                 if (canvas.width !== 640) {
                     let aspect = videoElement.videoHeight / videoElement.videoWidth;
@@ -231,22 +243,19 @@
                 let hierarchy = new cv.Mat();
                 cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-                // --- 輪郭を面積順にソート ---
                 let contourList = [];
                 for (let i = 0; i < contours.size(); i++) {
                     let cnt = contours.get(i);
                     let area = cv.contourArea(cnt, false);
-                    if (area > 20) { // ノイズ除去
+                    if (area > 20) { 
                         contourList.push({ cnt: cnt, area: area });
                     }
                 }
-                // 面積が大きい順
                 contourList.sort((a, b) => b.area - a.area);
 
                 let hasAngle = false;
 
                 if (contourList.length > 0) {
-                    // 1. 一番大きいマーカー (胴体・中心)
                     let bigCnt = contourList[0].cnt;
                     let M_big = cv.moments(bigCnt);
                     let cx_big = M_big.m10 / M_big.m00;
@@ -255,40 +264,30 @@
                     latestX = Math.round((cx_big / canvas.width) * 255);
                     latestY = Math.round((cy_big / canvas.height) * 255);
 
-                    // 描画: 胴体は緑丸
                     cv.circle(src, new cv.Point(cx_big, cy_big), 5, [0, 255, 0, 255], -1);
 
-                    // 2. 二番目に大きいマーカー (頭・前) があれば角度計算
                     if (contourList.length >= 2) {
                         let smallCnt = contourList[1].cnt;
                         let M_small = cv.moments(smallCnt);
                         let cx_small = M_small.m10 / M_small.m00;
                         let cy_small = M_small.m01 / M_small.m00;
 
-                        // 描画: 頭は黄色丸
                         cv.circle(src, new cv.Point(cx_small, cy_small), 3, [255, 255, 0, 255], -1);
 
-                        // 角度計算 (胴体 -> 頭 のベクトル)
-                        // Math.atan2(y, x) はラジアン (-PI ~ PI)
                         let dx = cx_small - cx_big;
                         let dy = cy_small - cy_big;
                         let rad = Math.atan2(dy, dx);
                         let deg = rad * (180 / Math.PI);
                         
-                        // 0〜360度に正規化 (右=0, 下=90, 左=180, 上=270)
-                        // OpenCV座標系はYが下向き正であることに注意
                         if (deg < 0) deg += 360;
                         latestAngle = Math.round(deg);
                         hasAngle = true;
 
-                        // 矢印描画
                         cv.arrowedLine(src, new cv.Point(cx_big, cy_big), new cv.Point(cx_small, cy_small), [255, 0, 0, 255], 2);
                     } else {
-                        // マーカーが1つしかない場合
-                        latestAngle = 0; // または前の値を保持
+                        latestAngle = 0;
                     }
                     
-                    // --- 送信 (Mode 2) ---
                     if (currentMode === 2 && bleCharacteristic && !isVideoFileMode) {
                         if (!isSending && Math.random() > 0.5) {
                             isSending = true;
@@ -298,7 +297,6 @@
                     }
                 }
 
-                // --- 記録 & 表示 ---
                 let infoText = "";
                 if (currentMode === 1 && isRecording) {
                     let t = Date.now() - recordStartTime;
@@ -324,9 +322,6 @@
             requestAnimationFrame(processLoop);
         }
 
-        // ==========================================
-        // Bluetooth & UI
-        // ==========================================
         async function connectBluetooth() {
             const SERVICE_UUID = '0000aaaa-0000-1000-8000-00805f9b34fb';
             const CHARACTERISTIC_UUID = '0000bbbb-0000-1000-8000-00805f9b34fb';
