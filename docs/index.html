@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Video Analyzer (Resolution Display)</title>
+    <title>Video Analyzer (Pixel Coords)</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #222; color: #fff; touch-action: manipulation; }
         
@@ -30,7 +30,6 @@
 
         #file-input-container { display: none; margin: 20px auto; padding: 15px; background: #333; border-radius: 8px; max-width: 400px; }
         
-        /* 十字キー */
         #dpad-area { display: none; margin: 30px auto; width: 240px; height: 240px; position: relative; }
         .d-btn { 
             position: absolute; width: 70px; height: 70px; 
@@ -55,17 +54,15 @@
         .btn-clear { padding: 10px 20px; background-color: #9E9E9E; color: white; margin-left: 10px; }
 
         #status { font-size: 1.1rem; margin-bottom: 10px; color: #aaa; font-weight: bold; }
-        /* 解像度表示用 */
         #resolution-display { font-size: 0.9rem; color: #aaa; margin-bottom: 5px; min-height: 1.2em; }
         #loading { color: #aaa; margin-bottom: 10px; display:none; }
     </style>
 </head>
 <body>
-    <h3>2-Marker Tracking & Resolution</h3>
+    <h3>2-Marker Analysis (Real Coordinates)</h3>
     
     <div id="status">Bluetooth未接続</div>
     <div id="loading">OpenCV ロード中...</div>
-
     <div id="resolution-display">Resolution: - x -</div>
 
     <canvas id="canvas"></canvas>
@@ -128,7 +125,11 @@
         let cvReady = false;
         let currentMode = 3, isSending = false, isVideoFileMode = false;
         let recordedData = [], isRecording = false, recordStartTime = 0;
-        let latestX=0, latestY=0, latestAngle=0, currentDirStr="";
+        
+        // 座標変数
+        let normX=0, normY=0; // 0-255 (Bluetooth用)
+        let pixelX=0, pixelY=0; // 本当の画素数 (CSV用)
+        let latestAngle=0, currentDirStr="";
 
         function onOpenCvReady() { cvReady = true; document.getElementById('loading').style.display = 'none'; }
 
@@ -208,22 +209,24 @@
         }
 
         // ==========================================
-        // 画像処理 (大小2マーカー追尾)
+        // 画像処理
         // ==========================================
         function processLoop() {
             try {
                 if (!cvReady) { requestAnimationFrame(processLoop); return; }
 
-                // --- 解像度表示の更新 ---
-                if (videoElement.videoWidth > 0) {
-                    const resText = `Resolution: ${videoElement.videoWidth} x ${videoElement.videoHeight}`;
-                    document.getElementById('resolution-display').textContent = resText;
+                let vw = videoElement.videoWidth;
+                let vh = videoElement.videoHeight;
+
+                // 解像度表示
+                if (vw > 0) {
+                    document.getElementById('resolution-display').textContent = `Resolution: ${vw} x ${vh}`;
                 }
 
                 if (videoElement.paused || videoElement.ended) { requestAnimationFrame(processLoop); return; }
 
                 if (canvas.width !== 640) {
-                    let aspect = videoElement.videoHeight / videoElement.videoWidth;
+                    let aspect = vh / vw;
                     if(isNaN(aspect)) aspect = 0.75;
                     canvas.width = 640; canvas.height = 640 * aspect;
                 }
@@ -258,14 +261,24 @@
                 if (contourList.length > 0) {
                     let bigCnt = contourList[0].cnt;
                     let M_big = cv.moments(bigCnt);
-                    let cx_big = M_big.m10 / M_big.m00;
-                    let cy_big = M_big.m01 / M_big.m00;
+                    let cx_big = M_big.m10 / M_big.m00; // Canvas上のX
+                    let cy_big = M_big.m01 / M_big.m00; // Canvas上のY
 
-                    latestX = Math.round((cx_big / canvas.width) * 255);
-                    latestY = Math.round((cy_big / canvas.height) * 255);
+                    // ★Bluetooth用 (0-255に正規化)
+                    normX = Math.round((cx_big / canvas.width) * 255);
+                    normY = Math.round((cy_big / canvas.height) * 255);
+
+                    // ★CSV用 (元の動画解像度のピクセルに戻す)
+                    if (vw > 0 && vh > 0) {
+                        pixelX = Math.round((cx_big / canvas.width) * vw);
+                        pixelY = Math.round((cy_big / canvas.height) * vh);
+                    } else {
+                        pixelX = normX; pixelY = normY; // フォールバック
+                    }
 
                     cv.circle(src, new cv.Point(cx_big, cy_big), 5, [0, 255, 0, 255], -1);
 
+                    // 2番目に大きいマーカーがあれば角度計算
                     if (contourList.length >= 2) {
                         let smallCnt = contourList[1].cnt;
                         let M_small = cv.moments(smallCnt);
@@ -278,7 +291,6 @@
                         let dy = cy_small - cy_big;
                         let rad = Math.atan2(dy, dx);
                         let deg = rad * (180 / Math.PI);
-                        
                         if (deg < 0) deg += 360;
                         latestAngle = Math.round(deg);
                         hasAngle = true;
@@ -288,32 +300,38 @@
                         latestAngle = 0;
                     }
                     
+                    // Bluetooth送信 (正規化座標を送る)
                     if (currentMode === 2 && bleCharacteristic && !isVideoFileMode) {
                         if (!isSending && Math.random() > 0.5) {
                             isSending = true;
-                            bleCharacteristic.writeValue(new Uint8Array([HEADER_AUTO, latestX, latestY]))
+                            bleCharacteristic.writeValue(new Uint8Array([HEADER_AUTO, normX, normY]))
                                 .then(() => isSending = false).catch(() => isSending = false);
                         }
                     }
                 }
 
                 let infoText = "";
+                // 記録時は pixelX, pixelY を使う
                 if (currentMode === 1 && isRecording) {
                     let t = Date.now() - recordStartTime;
-                    recordedData.push({ t: t, in: currentDirStr, x: latestX, y: latestY, angle: latestAngle });
+                    recordedData.push({ t: t, in: currentDirStr, x: pixelX, y: pixelY, angle: latestAngle });
                     infoText = "REC";
                 } else if (currentMode === 4 && !videoElement.paused) {
                     let t = Math.round(videoElement.currentTime * 1000);
                     let last = recordedData[recordedData.length - 1];
                     if (!last || last.t !== t) {
-                        recordedData.push({ t: t, in: "Video", x: latestX, y: latestY, angle: latestAngle });
+                        recordedData.push({ t: t, in: "Video", x: pixelX, y: pixelY, angle: latestAngle });
                     }
                     infoText = `Time:${t}`;
                     updateLogCount();
                 }
 
                 if (infoText) cv.putText(src, infoText, new cv.Point(20, 40), cv.FONT_HERSHEY_SIMPLEX, 0.8, [255, 255, 255, 255], 2);
-                if (hasAngle) cv.putText(src, `Ang:${latestAngle}`, new cv.Point(20, 70), cv.FONT_HERSHEY_SIMPLEX, 0.8, [255, 255, 0, 255], 2);
+                
+                // 画面上には正規化座標ではなく、ピクセル座標を表示してみる
+                let coordsText = `Pos:(${pixelX}, ${pixelY})`;
+                if (hasAngle) coordsText += ` Ang:${latestAngle}`;
+                cv.putText(src, coordsText, new cv.Point(20, 70), cv.FONT_HERSHEY_SIMPLEX, 0.6, [255, 255, 0, 255], 1.5);
 
                 cv.imshow('canvas', src);
                 src.delete(); hsv.delete(); mask.delete(); low.delete(); high.delete(); contours.delete(); hierarchy.delete();
@@ -383,7 +401,7 @@
         function updateLogCount() { document.getElementById('log-count').textContent = `データ数: ${recordedData.length}行`; }
         function saveCSV() {
             if (recordedData.length===0) { alert("データなし"); return; }
-            let csv = "Time(ms),Input,RawX,RawY,Angle(deg)\n";
+            let csv = "Time(ms),Input,PixelX,PixelY,Angle(deg)\n";
             recordedData.forEach(r => csv += `${r.t},${r.in},${r.x},${r.y},${r.angle}\n`);
             const a = document.createElement('a');
             a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
