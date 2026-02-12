@@ -1,369 +1,824 @@
 <!DOCTYPE html>
+
 <html lang="ja">
+
 <head>
+
     <meta charset="UTF-8">
+
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robot Tracker (AR Marker)</title>
+
+    <title>Video Analyzer (Pixel Coords)</title>
+
     <style>
+
         body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #222; color: #fff; touch-action: manipulation; }
+
         
+
         canvas { 
+
             border: 4px solid #444; background-color: #000;
+
             width: 100%; max-width: 640px; height: auto; border-radius: 8px;
+
             display: none; margin: 0 auto;
+
         }
+
         video { display: none; }
 
+
+
         button { cursor: pointer; border-radius: 6px; border: none; font-weight: bold; transition: 0.1s; -webkit-tap-highlight-color: transparent;}
+
         button:active { transform: scale(0.96); }
+
         button:disabled { background-color: #555 !important; color: #888 !important; cursor: not-allowed; transform: none; }
 
+
+
         .btn-sys { font-size: 1rem; padding: 12px 20px; margin: 5px; background-color: #607D8B; color: white; }
+
         
+
         .mode-tabs { margin: 20px 0; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap;}
+
         .tab { padding: 10px 15px; font-size: 1rem; opacity: 0.6; background: #444; color: #fff; border: 2px solid transparent;}
+
         
+
         #mode1Btn.active { opacity: 1; background-color: #2196F3; border-color: #64B5F6; }
+
         #mode2Btn.active { opacity: 1; background-color: #9C27B0; border-color: #BA68C8; }
+
         #mode3Btn.active { opacity: 1; background-color: #4CAF50; border-color: #81C784; }
+
         #mode4Btn.active { opacity: 1; background-color: #FF5722; border-color: #FFAB91; }
 
+
+
         #file-input-container { display: none; margin: 20px auto; padding: 15px; background: #333; border-radius: 8px; max-width: 400px; }
+
         
+
         #dpad-area { display: none; margin: 30px auto; width: 240px; height: 240px; position: relative; }
+
         .d-btn { 
+
             position: absolute; width: 70px; height: 70px; 
+
             background: #444; color: white; font-size: 30px;
+
             border-radius: 12px; user-select: none;
+
             box-shadow: 0 4px 0 #222;
+
         }
+
         .d-btn:active { box-shadow: 0 0 0 #222; transform: translateY(4px); }
+
         .mode3-active .d-btn { border: 2px solid #4CAF50; color: #4CAF50; }
+
         .mode1-active .d-btn { border: 2px solid #2196F3; color: #2196F3; }
+
         #btn-up { top: 0; left: 85px; } #btn-down { bottom: 0; left: 85px; }
+
         #btn-left { top: 85px; left: 0; } #btn-right { top: 85px; right: 0; }
 
+
+
+        #param-area { background-color: #333; border: 1px solid #555; border-radius: 8px; padding: 15px; max-width: 350px; margin: 20px auto; }
+
+        .param-row { display: flex; justify-content: space-between; margin-bottom: 10px; gap: 10px; }
+
+        .param-group { display: flex; flex-direction: column; align-items: center; width: 48%; }
+
+        .param-input { width: 100%; padding: 8px; background: #222; border: 1px solid #444; color: white; border-radius: 4px; text-align: center; }
+
+        #btn-update { width: 100%; padding: 12px; background-color: #FF9800; color: white; margin-top: 5px; }
+
+
+
         #save-area { margin-top: 20px; display: none; }
+
         .btn-save { padding: 10px 20px; background-color: #E91E63; color: white; }
+
         .btn-clear { padding: 10px 20px; background-color: #9E9E9E; color: white; margin-left: 10px; }
 
+
+
         #status { font-size: 1.1rem; margin-bottom: 10px; color: #aaa; font-weight: bold; }
+
         #resolution-display { font-size: 0.9rem; color: #aaa; margin-bottom: 5px; min-height: 1.2em; }
+
+        #loading { color: #aaa; margin-bottom: 10px; display:none; }
+
     </style>
+
 </head>
+
 <body>
-    <h3>AR Marker Tracker (ID: 0)</h3>
+
+    <h3>2-Marker Analysis (Real Coordinates)</h3>
+
     
+
     <div id="status">Bluetooth未接続</div>
+
+    <div id="loading">OpenCV ロード中...</div>
+
     <div id="resolution-display">Resolution: - x -</div>
 
+
+
     <canvas id="canvas"></canvas>
+
     <video id="videoElement" playsinline controls style="display:none;"></video>
 
+
+
     <div>
+
         <button id="connectButton" class="btn-sys" style="background-color: #007bff;">① Bluetooth 接続</button>
+
         <button id="cameraButton" class="btn-sys">② カメラ起動 (Webcam)</button>
+
     </div>
+
+
 
     <div class="mode-tabs">
+
         <button id="mode3Btn" class="tab active">Mode 3<br><span style="font-size:0.7em">動作確認</span></button>
+
         <button id="mode1Btn" class="tab">Mode 1<br><span style="font-size:0.7em">3秒記録</span></button>
+
         <button id="mode2Btn" class="tab">Mode 2<br><span style="font-size:0.7em">自動追尾</span></button>
+
         <button id="mode4Btn" class="tab">Mode 4<br><span style="font-size:0.7em">動画解析</span></button>
+
     </div>
+
+
 
     <div id="file-input-container">
+
         <div style="margin-bottom:5px; color:#FFAB91; font-weight:bold;">動画ファイルを選択</div>
-        <p style="font-size:0.8rem; color:#ccc; margin:5px;">※「Original ArUco」のID:0マーカーが映っている動画</p>
+
+        <p style="font-size:0.8rem; color:#ccc; margin:5px;">※「大(中心)」と「小(前)」の2つの青マーカーを貼ってください</p>
+
         <input type="file" id="videoInput" accept="video/*" style="color:white;">
+
         <div style="margin-top:10px;">
+
             <button id="v-play" class="btn-sys" style="padding:5px 15px;">再生/停止</button>
+
             <button id="v-reset" class="btn-sys" style="padding:5px 15px;">リセット</button>
+
         </div>
+
     </div>
+
+
 
     <div id="dpad-area" class="mode3-active">
+
         <button id="btn-up" class="d-btn" data-dir="1">▲</button>
+
         <button id="btn-left" class="d-btn" data-dir="4">◀</button>
+
         <button id="btn-right" class="d-btn" data-dir="3">▶</button>
+
         <button id="btn-down" class="d-btn" data-dir="2">▼</button>
+
     </div>
+
+
+
+    <div id="param-area">
+
+        <div style="font-weight:bold; margin-bottom:10px; color:#FF9800;">パラメータ設定</div>
+
+        <div class="param-row">
+
+            <div class="param-group"><label>Res 1</label><input type="number" id="p-res1" class="param-input" value="5"></div>
+
+            <div class="param-group"><label>Rep 1</label><input type="number" id="p-rep1" class="param-input" value="4"></div>
+
+        </div>
+
+        <div class="param-row">
+
+            <div class="param-group"><label>Res 2</label><input type="number" id="p-res2" class="param-input" value="10"></div>
+
+            <div class="param-group"><label>Rep 2</label><input type="number" id="p-rep2" class="param-input" value="4"></div>
+
+        </div>
+
+        <button id="btn-update">パラメータ更新</button>
+
+    </div>
+
+
 
     <div id="save-area">
+
         <div id="log-count" style="margin-bottom:10px;">データ数: 0</div>
+
         <button id="saveBtn" class="btn-save">💾 CSV保存</button>
+
         <button id="clearBtn" class="btn-clear">🗑️ クリア</button>
+
     </div>
 
-    <script src="https://raw.githack.com/jcmellado/js-aruco/master/src/cv.js"></script>
-    <script src="https://raw.githack.com/jcmellado/js-aruco/master/src/aruco.js"></script>
+
+
+    <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady()"></script>
+
+
 
     <script>
-        const HEADER_MANUAL = 0x01, HEADER_AUTO = 0x02, DIR_STOP = 0;
+
+        const HEADER_MANUAL = 0x01, HEADER_AUTO = 0x02, HEADER_PARAM = 0x03, DIR_STOP = 0;
+
         let videoElement, canvas, ctx;
+
         let bleDevice, bleCharacteristic;
-        let detector; // AR検出器
+
+        let cvReady = false;
+
         let currentMode = 3, isSending = false, isVideoFileMode = false;
+
         let recordedData = [], isRecording = false, recordStartTime = 0;
+
         
-        let normX=0, normY=0; // 0-255
-        let pixelX=0, pixelY=0; // Real pixel
+
+        // 座標変数
+
+        let normX=0, normY=0; // 0-255 (Bluetooth用)
+
+        let pixelX=0, pixelY=0; // 本当の画素数 (CSV用)
+
         let latestAngle=0, currentDirStr="";
 
+
+
+        function onOpenCvReady() { cvReady = true; document.getElementById('loading').style.display = 'none'; }
+
+
+
         window.onload = () => {
+
             videoElement = document.getElementById('videoElement');
+
             canvas = document.getElementById('canvas');
+
             ctx = canvas.getContext('2d', { willReadFrequently: true });
-            
-            // AR検出器の初期化
-            detector = new AR.Detector();
+
+
 
             document.getElementById('cameraButton').onclick = startWebcam;
+
             document.getElementById('connectButton').onclick = connectBluetooth;
+
+            document.getElementById('btn-update').onclick = sendParamUpdate;
+
             
+
             [1,2,3,4].forEach(m => document.getElementById(`mode${m}Btn`).onclick = () => setMode(m));
 
+
+
             const videoInput = document.getElementById('videoInput');
+
             videoInput.addEventListener('change', handleFileSelect, false);
+
             
+
             document.getElementById('v-play').onclick = () => videoElement.paused ? videoElement.play() : videoElement.pause();
+
             document.getElementById('v-reset').onclick = () => { videoElement.currentTime = 0; videoElement.pause(); recordedData=[]; updateLogCount(); };
+
             document.getElementById('saveBtn').onclick = saveCSV;
+
             document.getElementById('clearBtn').onclick = () => { recordedData=[]; updateLogCount(); };
 
+
+
             setupDpad();
+
             setMode(3); 
+
             requestAnimationFrame(processLoop);
+
         };
 
+
+
         async function startWebcam() {
+
+            if (!cvReady) return;
+
             try {
+
                 isVideoFileMode = false;
+
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
+
                 videoElement.srcObject = stream;
+
                 videoElement.play(); 
+
                 canvas.style.display = 'block';
+
                 document.getElementById('cameraButton').textContent = "Webcam動作中";
+
                 if(currentMode === 4) setMode(3);
+
             } catch (err) { alert("カメラエラー: " + err); }
+
         }
+
+
 
         function handleFileSelect(event) {
+
             const file = event.target.files[0];
+
             if (!file) return;
+
             isVideoFileMode = true;
+
             videoElement.srcObject = null;
+
             videoElement.src = URL.createObjectURL(file);
+
             videoElement.load();
+
             canvas.style.display = 'block';
+
             document.getElementById('cameraButton').textContent = "動画ファイルモード";
+
             setMode(4); recordedData = []; updateLogCount();
+
         }
+
+
 
         function setMode(mode) {
+
             currentMode = mode;
+
             document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+
             document.getElementById(`mode${mode}Btn`).classList.add('active');
 
+
+
             const dpad = document.getElementById('dpad-area');
+
             const saveArea = document.getElementById('save-area');
+
+            const paramArea = document.getElementById('param-area');
+
             const fileContainer = document.getElementById('file-input-container');
+
             const status = document.getElementById('status');
+
             const canvasEl = document.getElementById('canvas');
 
+
+
             dpad.classList.remove('mode1-active', 'mode3-active');
+
             fileContainer.style.display = (mode === 4) ? "block" : "none";
+
+            paramArea.style.display = (mode === 4) ? "none" : "block";
+
             
+
             let color = "#fff";
+
             if (mode === 3) { status.textContent="Mode 3: 動作確認"; color="#4CAF50"; dpad.style.display="block"; dpad.classList.add('mode3-active'); saveArea.style.display="none"; }
+
             else if (mode === 1) { status.textContent="Mode 1: 3秒記録"; color="#2196F3"; dpad.style.display="block"; dpad.classList.add('mode1-active'); saveArea.style.display="block"; }
+
             else if (mode === 2) { status.textContent="Mode 2: 自動追尾"; color="#9C27B0"; dpad.style.display="none"; saveArea.style.display="none"; }
-            else if (mode === 4) { status.textContent="Mode 4: 動画解析(AR)"; color="#FF5722"; dpad.style.display="none"; saveArea.style.display="block"; }
+
+            else if (mode === 4) { status.textContent="Mode 4: 動画解析(大小マーカー)"; color="#FF5722"; dpad.style.display="none"; saveArea.style.display="block"; }
+
             
+
             status.style.color = color;
+
             canvasEl.style.borderColor = color;
+
         }
+
+
+
+        // ==========================================
+
+        // 画像処理
+
+        // ==========================================
 
         function processLoop() {
-            if (videoElement.readyState === videoElement.HAVE_ENOUGH_DATA && !videoElement.paused && !videoElement.ended) {
+
+            try {
+
+                if (!cvReady) { requestAnimationFrame(processLoop); return; }
+
+
+
                 let vw = videoElement.videoWidth;
+
                 let vh = videoElement.videoHeight;
-                document.getElementById('resolution-display').textContent = `Resolution: ${vw} x ${vh}`;
+
+
+
+                // 解像度表示
+
+                if (vw > 0) {
+
+                    document.getElementById('resolution-display').textContent = `Resolution: ${vw} x ${vh}`;
+
+                }
+
+
+
+                if (videoElement.paused || videoElement.ended) { requestAnimationFrame(processLoop); return; }
+
+
 
                 if (canvas.width !== 640) {
+
                     let aspect = vh / vw;
+
                     if(isNaN(aspect)) aspect = 0.75;
+
                     canvas.width = 640; canvas.height = 640 * aspect;
+
                 }
-                
-                // 描画
+
                 ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-                let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                
-                // ★ ARマーカー検出
-                let markers = detector.detect(imageData);
-                let found = false;
 
-                // ID:0 のマーカーを探す (なければ最初に見つかったもの)
-                let targetMarker = markers.find(m => m.id === 0);
-                if (!targetMarker && markers.length > 0) targetMarker = markers[0];
 
-                if (targetMarker) {
-                    found = true;
-                    drawMarker(targetMarker); // 枠線描画
 
-                    // 重心計算
-                    let corners = targetMarker.corners;
-                    let cx = (corners[0].x + corners[1].x + corners[2].x + corners[3].x) / 4;
-                    let cy = (corners[0].y + corners[1].y + corners[2].y + corners[3].y) / 4;
+                let src = cv.matFromImageData(ctx.getImageData(0, 0, canvas.width, canvas.height));
 
-                    // 角度計算 (Top-LeftとTop-Rightの中点 が 上方向)
-                    // js-arucoのcorners順序: 0:TL, 1:TR, 2:BR, 3:BL (時計回り)
-                    let topX = (corners[0].x + corners[1].x) / 2;
-                    let topY = (corners[0].y + corners[1].y) / 2;
-                    
-                    let dx = topX - cx;
-                    let dy = topY - cy;
-                    // 画像座標系(Yが下)なので、atan2(dy, dx) で角度が出るが、
-                    // ロボット工学的にはX軸正方向を0度とするか、上(Y負)を0度とするかによる。
-                    // ここでは「画面の上方向(-Y)」を0度とするように調整
-                    let rad = Math.atan2(dy, dx);
-                    let deg = rad * (180 / Math.PI) + 90; 
-                    if (deg < 0) deg += 360;
-                    
-                    latestAngle = Math.round(deg);
-                    
-                    // 座標変換
-                    normX = Math.round((cx / canvas.width) * 255);
-                    normY = Math.round((cy / canvas.height) * 255);
-                    
-                    if (vw > 0) {
-                        pixelX = Math.round((cx / canvas.width) * vw);
-                        pixelY = Math.round((cy / canvas.height) * vh);
+                let hsv = new cv.Mat();
+
+                cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
+
+                cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
+
+
+
+                let mask = new cv.Mat();
+
+                let low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), new cv.Scalar(100, 60, 20));
+
+                let high = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), new cv.Scalar(140, 255, 255));
+
+                cv.inRange(hsv, low, high, mask);
+
+
+
+                let contours = new cv.MatVector();
+
+                let hierarchy = new cv.Mat();
+
+                cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+
+
+                let contourList = [];
+
+                for (let i = 0; i < contours.size(); i++) {
+
+                    let cnt = contours.get(i);
+
+                    let area = cv.contourArea(cnt, false);
+
+                    if (area > 20) { 
+
+                        contourList.push({ cnt: cnt, area: area });
+
                     }
 
-                    // 向きの矢印を描画
-                    ctx.beginPath();
-                    ctx.moveTo(cx, cy);
-                    ctx.lineTo(cx + dx * 1.5, cy + dy * 1.5);
-                    ctx.strokeStyle = "cyan";
-                    ctx.lineWidth = 4;
-                    ctx.stroke();
+                }
 
-                    // ID表示
-                    ctx.fillStyle = "red";
-                    ctx.font = "20px Arial";
-                    ctx.fillText(`ID:${targetMarker.id}`, cx + 10, cy);
+                contourList.sort((a, b) => b.area - a.area);
+
+
+
+                let hasAngle = false;
+
+
+
+                if (contourList.length > 0) {
+
+                    let bigCnt = contourList[0].cnt;
+
+                    let M_big = cv.moments(bigCnt);
+
+                    let cx_big = M_big.m10 / M_big.m00; // Canvas上のX
+
+                    let cy_big = M_big.m01 / M_big.m00; // Canvas上のY
+
+
+
+                    // ★Bluetooth用 (0-255に正規化)
+
+                    normX = Math.round((cx_big / canvas.width) * 255);
+
+                    normY = Math.round((cy_big / canvas.height) * 255);
+
+
+
+                    // ★CSV用 (元の動画解像度のピクセルに戻す)
+
+                    if (vw > 0 && vh > 0) {
+
+                        pixelX = Math.round((cx_big / canvas.width) * vw);
+
+                        pixelY = Math.round((cy_big / canvas.height) * vh);
+
+                    } else {
+
+                        pixelX = normX; pixelY = normY; // フォールバック
+
+                    }
+
+
+
+                    cv.circle(src, new cv.Point(cx_big, cy_big), 5, [0, 255, 0, 255], -1);
+
+
+
+                    // 2番目に大きいマーカーがあれば角度計算
+
+                    if (contourList.length >= 2) {
+
+                        let smallCnt = contourList[1].cnt;
+
+                        let M_small = cv.moments(smallCnt);
+
+                        let cx_small = M_small.m10 / M_small.m00;
+
+                        let cy_small = M_small.m01 / M_small.m00;
+
+
+
+                        cv.circle(src, new cv.Point(cx_small, cy_small), 3, [255, 255, 0, 255], -1);
+
+
+
+                        let dx = cx_small - cx_big;
+
+                        let dy = cy_small - cy_big;
+
+                        let rad = Math.atan2(dy, dx);
+
+                        let deg = rad * (180 / Math.PI);
+
+                        if (deg < 0) deg += 360;
+
+                        latestAngle = Math.round(deg);
+
+                        hasAngle = true;
+
+
+
+                        cv.arrowedLine(src, new cv.Point(cx_big, cy_big), new cv.Point(cx_small, cy_small), [255, 0, 0, 255], 2);
+
+                    } else {
+
+                        latestAngle = 0;
+
+                    }
+
                     
-                    // Bluetooth送信
+
+                    // Bluetooth送信 (正規化座標を送る)
+
                     if (currentMode === 2 && bleCharacteristic && !isVideoFileMode) {
-                        if (!isSending && Math.random() > 0.5) { // 間引いて送信
+
+                        if (!isSending && Math.random() > 0.5) {
+
                             isSending = true;
+
                             bleCharacteristic.writeValue(new Uint8Array([HEADER_AUTO, normX, normY]))
+
                                 .then(() => isSending = false).catch(() => isSending = false);
+
                         }
+
                     }
+
                 }
 
-                // 情報表示
+
+
                 let infoText = "";
+
+                // 記録時は pixelX, pixelY を使う
+
                 if (currentMode === 1 && isRecording) {
+
                     let t = Date.now() - recordStartTime;
+
                     recordedData.push({ t: t, in: currentDirStr, x: pixelX, y: pixelY, angle: latestAngle });
+
                     infoText = "REC";
+
                 } else if (currentMode === 4 && !videoElement.paused) {
+
                     let t = Math.round(videoElement.currentTime * 1000);
+
                     let last = recordedData[recordedData.length - 1];
+
                     if (!last || last.t !== t) {
-                        // マーカーが見つからなくても直前の値を保持するか、NaNを入れるか。
-                        // ここでは見つかったときだけ、もしくは見つからなければ直前の値を記録
-                        if (found) {
-                            recordedData.push({ t: t, in: "Video", x: pixelX, y: pixelY, angle: latestAngle });
-                        }
+
+                        recordedData.push({ t: t, in: "Video", x: pixelX, y: pixelY, angle: latestAngle });
+
                     }
+
                     infoText = `Time:${t}`;
+
                     updateLogCount();
+
                 }
 
-                ctx.fillStyle = "white";
-                ctx.font = "20px Arial";
-                if(infoText) ctx.fillText(infoText, 20, 40);
+
+
+                if (infoText) cv.putText(src, infoText, new cv.Point(20, 40), cv.FONT_HERSHEY_SIMPLEX, 0.8, [255, 255, 255, 255], 2);
+
                 
-                let coordsText = found ? `Pos:(${pixelX}, ${pixelY}) Ang:${latestAngle}°` : "Searching...";
-                ctx.fillStyle = found ? "yellow" : "#aaa";
-                ctx.fillText(coordsText, 20, 70);
-            }
+
+                // 画面上には正規化座標ではなく、ピクセル座標を表示してみる
+
+                let coordsText = `Pos:(${pixelX}, ${pixelY})`;
+
+                if (hasAngle) coordsText += ` Ang:${latestAngle}`;
+
+                cv.putText(src, coordsText, new cv.Point(20, 70), cv.FONT_HERSHEY_SIMPLEX, 0.6, [255, 255, 0, 255], 1.5);
+
+
+
+                cv.imshow('canvas', src);
+
+                src.delete(); hsv.delete(); mask.delete(); low.delete(); high.delete(); contours.delete(); hierarchy.delete();
+
+
+
+            } catch (e) { console.log(e); }
+
             requestAnimationFrame(processLoop);
+
         }
 
-        function drawMarker(marker) {
-            ctx.strokeStyle = "lime";
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            let c = marker.corners;
-            ctx.moveTo(c[0].x, c[0].y);
-            ctx.lineTo(c[1].x, c[1].y);
-            ctx.lineTo(c[2].x, c[2].y);
-            ctx.lineTo(c[3].x, c[3].y);
-            ctx.closePath();
-            ctx.stroke();
-            
-            // 角に点を打つ (0:赤, 1:緑, 2:青, 3:黄) -> 向き確認用
-            let colors = ["red", "lime", "blue", "yellow"];
-            for(let i=0; i<4; i++){
-                ctx.fillStyle = colors[i];
-                ctx.beginPath();
-                ctx.arc(c[i].x, c[i].y, 4, 0, Math.PI*2);
-                ctx.fill();
-            }
-        }
+
 
         async function connectBluetooth() {
+
             const SERVICE_UUID = '0000aaaa-0000-1000-8000-00805f9b34fb';
+
             const CHARACTERISTIC_UUID = '0000bbbb-0000-1000-8000-00805f9b34fb';
+
             try {
+
                 bleDevice = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [SERVICE_UUID] });
+
                 const server = await bleDevice.gatt.connect();
+
                 const service = await server.getPrimaryService(SERVICE_UUID);
+
                 bleCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+
                 document.getElementById('status').textContent = "Bluetooth接続OK";
+
                 document.getElementById('status').style.color = "#4CAF50";
+
             } catch (err) { alert("接続失敗: " + err); }
+
         }
+
+
 
         async function sendManualCommand(id) {
+
             if (!bleCharacteristic || isVideoFileMode) return;
+
             try { await bleCharacteristic.writeValue(new Uint8Array([HEADER_MANUAL, id, 0])); } catch(e) {}
+
         }
+
+
+
+        async function sendParamUpdate() {
+
+            const btn = document.getElementById('btn-update');
+
+            if (!bleCharacteristic) { 
+
+                btn.textContent = "未接続です"; btn.style.backgroundColor = "#9E9E9E"; 
+
+                setTimeout(() => { btn.textContent = "パラメータ更新"; btn.style.backgroundColor = "#FF9800"; }, 1000);
+
+                return; 
+
+            }
+
+            const r1 = parseInt(document.getElementById('p-res1').value)||5;
+
+            const p1 = parseInt(document.getElementById('p-rep1').value)||4;
+
+            const r2 = parseInt(document.getElementById('p-res2').value)||10;
+
+            const p2 = parseInt(document.getElementById('p-rep2').value)||4;
+
+            try {
+
+                await bleCharacteristic.writeValue(new Uint8Array([HEADER_PARAM, r1, p1, r2, p2]));
+
+                btn.textContent = "更新完了!"; btn.style.backgroundColor = "#4CAF50";
+
+                setTimeout(() => { btn.textContent = "パラメータ更新"; btn.style.backgroundColor = "#FF9800"; }, 1000);
+
+            } catch (e) {
+
+                btn.textContent = "エラー"; btn.style.backgroundColor = "#f44336";
+
+                setTimeout(() => { btn.textContent = "パラメータ更新"; btn.style.backgroundColor = "#FF9800"; }, 1000);
+
+            }
+
+        }
+
+
 
         function setupDpad() {
+
             const btns = document.querySelectorAll('.d-btn');
+
             btns.forEach(btn => {
+
                 const id = parseInt(btn.dataset.dir), name = btn.textContent;
-                const press = (e) => { 
+
+                const press = (e) => {
+
                     e.preventDefault(); 
+
                     if(currentMode===3) { sendManualCommand(id); document.getElementById('status').textContent = `動作中: ${name}`; }
+
                     else if(currentMode===1 && !isRecording && !isVideoFileMode) {
+
                         isRecording=true; recordStartTime=Date.now(); currentDirStr=name; sendManualCommand(id);
+
                         document.getElementById('status').textContent = `REC中: ${name}`;
+
                         setTimeout(()=>{ sendManualCommand(DIR_STOP); isRecording=false; document.getElementById('status').textContent="完了"; updateLogCount(); }, 3000);
+
                     }
+
                 };
+
                 const release = (e) => { e.preventDefault(); if(currentMode===3) { sendManualCommand(DIR_STOP); document.getElementById('status').textContent="待機中"; } };
+
                 ['mousedown','touchstart'].forEach(ev=>btn.addEventListener(ev, press, {passive:false}));
+
                 ['mouseup','mouseleave','touchend'].forEach(ev=>btn.addEventListener(ev, release));
+
             });
+
         }
 
+
+
         function updateLogCount() { document.getElementById('log-count').textContent = `データ数: ${recordedData.length}行`; }
+
         function saveCSV() {
+
             if (recordedData.length===0) { alert("データなし"); return; }
+
             let csv = "Time(ms),Input,PixelX,PixelY,Angle(deg)\n";
+
             recordedData.forEach(r => csv += `${r.t},${r.in},${r.x},${r.y},${r.angle}\n`);
+
             const a = document.createElement('a');
+
             a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
-            a.download = `ar_log_${Date.now()}.csv`; a.click();
+
+            a.download = `log_${Date.now()}.csv`; a.click();
+
         }
+
     </script>
+
 </body>
+
 </html>
+
