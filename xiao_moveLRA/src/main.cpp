@@ -12,8 +12,10 @@ bool deviceConnected = false;
 Adafruit_MCP4725 dac1;
 
 // --- 状態管理 ---
+bool isNewTypeWave = false; // 新波形モードかどうか
 bool isAutoRunning = false; // 自動ループ中か
 int manualId = 0;           // 手動実行中のパターンID (0=停止, 1~4=実行中)
+
 
 // --- パラメータ変数 ---
 // 初期値を設定
@@ -118,6 +120,29 @@ void move2(int res, int repeatCount, bool isDir){
   }
 }
 
+void move3(int res1, int res2, bool isDir){
+    if(res1 <= 0) res1 = 1;
+    if(res2 <= 0) res2 = 1;
+  if(checkStop()) return; // ループの途中でも指が離れたら即終了
+  if(isDir){
+    digitalWrite(D2,LOW); digitalWrite(D3,HIGH);
+  }else{
+    digitalWrite(D2,HIGH); digitalWrite(D3,LOW);
+  }
+  for(uint8_t k=0; k<res1; k++){
+    dac1.setVoltage(4095 * 1.0 * fabs(sin(k * 2 * 3.14 / res1 / 2)), false, 800000);
+  }
+
+  if(isDir){
+    digitalWrite(D2,HIGH); digitalWrite(D3,LOW);
+  }else{
+    digitalWrite(D2,LOW); digitalWrite(D3,HIGH);
+  }
+  for(uint8_t k=0; k<res2; k++){
+    dac1.setVoltage(4095 * 1.0 * fabs(sin(k * 2 * 3.14 / res2 / 2)), false, 800000);
+  }
+}
+
 // 指定したパターンの設定で1単位だけ動かす
 void runPatternStep(int id) {
   // ピン設定
@@ -132,12 +157,26 @@ void runPatternStep(int id) {
   }
 }
 
+// 指定したパターンの設定で新波形で1単位だけ動かす
+void runPatternStep2(int id) {
+  // ピン設定
+  digitalWrite(D6, LOW); digitalWrite(D8, LOW); digitalWrite(D7, LOW); digitalWrite(D10, LOW);
+  
+  switch(id) {
+    // move() や move2() にグローバル変数の paramResX, paramRepX を渡すようにしています
+    case 1: digitalWrite(D6, HIGH);  for(uint8_t i=0; i < 10; i++) move3(paramRes1, paramRep1, true);  break;
+    case 2: digitalWrite(D8, HIGH);  for(uint8_t i=0; i < 10; i++) move3(paramRes1, paramRep1, false); break;
+    case 3: digitalWrite(D7, HIGH);  for(uint8_t i=0; i < 10; i++) move3(paramRes2, paramRep2, true); break;
+    case 4: digitalWrite(D10, HIGH); for(uint8_t i=0; i < 10; i++) move3(paramRes2, paramRep2, false); break;
+  }
+}
+
 // 書き込みコールバック
 class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
       // 生データを取得
       uint8_t* data = pCharacteristic->getData();
-      String valueStr = pCharacteristic->getValue(); // 長さ取得用
+      std::string valueStr = pCharacteristic->getValue(); // 長さ取得用
       int len = valueStr.length();
 
       if (len > 0) {
@@ -148,7 +187,14 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             // モード1: 手動制御
             isAutoRunning = false;
             manualId = data[1];
-        } 
+            isNewTypeWave = false;
+          } 
+          else if(header == 0x04 && len >= 3){
+            //モード5: 手動モード(新波形モード)
+            isAutoRunning = false;
+            manualId = data[1];
+            isNewTypeWave = true;
+        }
         else if (header == 0x02 && len >= 3) {
             // モード2: 自動追尾開始など
             isAutoRunning = true;
@@ -198,8 +244,12 @@ void setup() {
 void loop() {
   // --- 手動モード実行中 (manualIdが1~4の間) ---
   if (manualId > 0) {
-    runPatternStep(manualId);
-    // runPatternStepの中でcheckStop()しているので、指を離せば次回ループでmanualId=0になり止まる
+    if(isNewTypeWave){
+      runPatternStep(manualId);
+    }else{
+      runPatternStep(manualId);
+      // runPatternStepの中でcheckStop()しているので、指を離せば次回ループでmanualId=0になり止まる
+    }
     return; 
   }
   
