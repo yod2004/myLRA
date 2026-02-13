@@ -293,13 +293,15 @@
 
                         cv.arrowedLine(src, new cv.Point(cx_big, cy_big), new cv.Point(cx_small, cy_small), [255, 0, 0, 255], 2);
                     } else {
-                        latestAngle = 0;
+                        // latestAngle = 0;
                     }
                     
                     // ★変更箇所: 自動追尾モード(Mode 2)で角度データも送信
                     if (currentMode === 2 && bleCharacteristic && !isVideoFileMode) {
                         if (!isSending && Math.random() > 0.5) {
                             isSending = true;
+                            normY = 255 - normY; // Y座標を反転
+                            latestAngle = 360 - latestAngle; // 角度を反転
                             // 角度(0〜359)を上位バイトと下位バイトに分ける
                             let angH = (latestAngle >> 8) & 0xFF;
                             let angL = latestAngle & 0xFF;
