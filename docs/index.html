@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Video Analyzer (Pixel Coords)</title>
+    <title>Video Analyzer (2-Color Tracker)</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #222; color: #fff; touch-action: manipulation; }
         
@@ -61,7 +61,7 @@
     </style>
 </head>
 <body>
-    <h3>2-Marker Analysis (Real Coordinates)</h3>
+    <h3>2-Color Tracker (Yellow / Blue)</h3>
     
     <div id="status">Bluetooth未接続</div>
     <div id="loading">OpenCV ロード中...</div>
@@ -85,7 +85,7 @@
 
     <div id="file-input-container">
         <div style="margin-bottom:5px; color:#FFAB91; font-weight:bold;">動画ファイルを選択</div>
-        <p style="font-size:0.8rem; color:#ccc; margin:5px;">※「大(中心)」と「小(前)」の2つの青マーカーを貼ってください</p>
+        <p style="font-size:0.8rem; color:#ccc; margin:5px;">※中心に「黄色」、前方に「青色」のシールを貼ってください</p>
         <input type="file" id="videoInput" accept="video/*" style="color:white;">
         <div style="margin-top:10px;">
             <button id="v-play" class="btn-sys" style="padding:5px 15px;">再生/停止</button>
@@ -132,6 +132,12 @@
         let normX=0, normY=0;
         let pixelX=0, pixelY=0;
         let latestAngle=0, currentDirStr="";
+
+        // ★新規追加: 色のHSV閾値定義
+        const COLOR_CENTER_LOW = [20, 100, 100]; // 黄色 (中心)
+        const COLOR_CENTER_HIGH = [40, 255, 255];
+        const COLOR_FRONT_LOW = [100, 80, 50];   // 青色 (前方)
+        const COLOR_FRONT_HIGH = [140, 255, 255];
 
         function onOpenCvReady() { cvReady = true; document.getElementById('loading').style.display = 'none'; }
 
@@ -205,10 +211,36 @@
             else if (mode === 5) { status.textContent="Mode 5: 別波形動作"; color="#00BCD4"; dpad.style.display="block"; dpad.classList.add('mode5-active'); saveArea.style.display="none"; }
             else if (mode === 1) { status.textContent="Mode 1: 3秒記録"; color="#2196F3"; dpad.style.display="block"; dpad.classList.add('mode1-active'); saveArea.style.display="block"; }
             else if (mode === 2) { status.textContent="Mode 2: 自動追尾"; color="#9C27B0"; dpad.style.display="none"; saveArea.style.display="none"; }
-            else if (mode === 4) { status.textContent="Mode 4: 動画解析(大小マーカー)"; color="#FF5722"; dpad.style.display="none"; saveArea.style.display="block"; }
+            else if (mode === 4) { status.textContent="Mode 4: 動画解析"; color="#FF5722"; dpad.style.display="none"; saveArea.style.display="block"; }
             
             status.style.color = color;
             canvasEl.style.borderColor = color;
+        }
+
+        // ★新規追加: 特定の色の重心を探索する関数
+        function findLargestColorCenter(hsvMat, lowColor, highColor) {
+            let mask = new cv.Mat();
+            let low = new cv.Mat(hsvMat.rows, hsvMat.cols, hsvMat.type(), new cv.Scalar(lowColor[0], lowColor[1], lowColor[2]));
+            let high = new cv.Mat(hsvMat.rows, hsvMat.cols, hsvMat.type(), new cv.Scalar(highColor[0], highColor[1], highColor[2]));
+            cv.inRange(hsvMat, low, high, mask);
+
+            let contours = new cv.MatVector();
+            let hierarchy = new cv.Mat();
+            cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+            let maxArea = 0;
+            let bestPos = null;
+            for (let i = 0; i < contours.size(); i++) {
+                let cnt = contours.get(i);
+                let area = cv.contourArea(cnt, false);
+                if (area > 20 && area > maxArea) {
+                    maxArea = area;
+                    let M = cv.moments(cnt);
+                    bestPos = { x: M.m10 / M.m00, y: M.m01 / M.m00 };
+                }
+            }
+            mask.delete(); low.delete(); high.delete(); contours.delete(); hierarchy.delete();
+            return bestPos;
         }
 
         function processLoop() {
@@ -236,78 +268,57 @@
                 cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
                 cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
 
-                let mask = new cv.Mat();
-                let low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), new cv.Scalar(100, 60, 20));
-                let high = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), new cv.Scalar(140, 255, 255));
-                cv.inRange(hsv, low, high, mask);
-
-                let contours = new cv.MatVector();
-                let hierarchy = new cv.Mat();
-                cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-                let contourList = [];
-                for (let i = 0; i < contours.size(); i++) {
-                    let cnt = contours.get(i);
-                    let area = cv.contourArea(cnt, false);
-                    if (area > 20) { 
-                        contourList.push({ cnt: cnt, area: area });
-                    }
-                }
-                contourList.sort((a, b) => b.area - a.area);
+                // ★変更: 黄色(中心) と 青色(前) の2色をそれぞれ探索
+                let centerPos = findLargestColorCenter(hsv, COLOR_CENTER_LOW, COLOR_CENTER_HIGH);
+                let frontPos = findLargestColorCenter(hsv, COLOR_FRONT_LOW, COLOR_FRONT_HIGH);
 
                 let hasAngle = false;
 
-                if (contourList.length > 0) {
-                    let bigCnt = contourList[0].cnt;
-                    let M_big = cv.moments(bigCnt);
-                    let cx_big = M_big.m10 / M_big.m00; 
-                    let cy_big = M_big.m01 / M_big.m00; 
-
-                    normX = Math.round((cx_big / canvas.width) * 255);
-                    normY = Math.round((cy_big / canvas.height) * 255);
+                if (centerPos) {
+                    // 中心座標の計算
+                    normX = Math.round((centerPos.x / canvas.width) * 255);
+                    normY = Math.round((centerPos.y / canvas.height) * 255);
 
                     if (vw > 0 && vh > 0) {
-                        pixelX = Math.round((cx_big / canvas.width) * vw);
-                        pixelY = Math.round((cy_big / canvas.height) * vh);
+                        pixelX = Math.round((centerPos.x / canvas.width) * vw);
+                        pixelY = Math.round((centerPos.y / canvas.height) * vh);
                     } else {
                         pixelX = normX; pixelY = normY;
                     }
 
-                    cv.circle(src, new cv.Point(cx_big, cy_big), 5, [0, 255, 0, 255], -1);
+                    // 黄色マーカーを描画
+                    cv.circle(src, new cv.Point(centerPos.x, centerPos.y), 6, [255, 255, 0, 255], -1);
+                    cv.circle(src, new cv.Point(centerPos.x, centerPos.y), 8, [0, 0, 0, 255], 2);
 
-                    if (contourList.length >= 2) {
-                        let smallCnt = contourList[1].cnt;
-                        let M_small = cv.moments(smallCnt);
-                        let cx_small = M_small.m10 / M_small.m00;
-                        let cy_small = M_small.m01 / M_small.m00;
+                    // 青色マーカーが見つかった場合、角度を計算
+                    if (frontPos) {
+                        cv.circle(src, new cv.Point(frontPos.x, frontPos.y), 4, [0, 255, 255, 255], -1);
 
-                        cv.circle(src, new cv.Point(cx_small, cy_small), 3, [255, 255, 0, 255], -1);
-
-                        let dx = cx_small - cx_big;
-                        let dy = cy_small - cy_big;
+                        let dx = frontPos.x - centerPos.x;
+                        let dy = frontPos.y - centerPos.y;
                         let rad = Math.atan2(dy, dx);
                         let deg = rad * (180 / Math.PI);
                         if (deg < 0) deg += 360;
                         latestAngle = Math.round(deg);
                         hasAngle = true;
 
-                        cv.arrowedLine(src, new cv.Point(cx_big, cy_big), new cv.Point(cx_small, cy_small), [255, 0, 0, 255], 2);
-                    } else {
-                        // latestAngle = 0;
+                        // 矢印を描画
+                        cv.arrowedLine(src, new cv.Point(centerPos.x, centerPos.y), new cv.Point(frontPos.x, frontPos.y), [0, 255, 0, 255], 2);
                     }
                     
-                    // ★変更箇所: 自動追尾モード(Mode 2)で角度データも送信
+                    // 自動追尾モード(Mode 2)のBLE送信
                     if (currentMode === 2 && bleCharacteristic && !isVideoFileMode) {
                         if (!isSending && Math.random() > 0.5) {
                             isSending = true;
-                            normY = 255 - normY; // Y座標を反転
-                            latestAngle = 360 - latestAngle; // 角度を反転
-                            // 角度(0〜359)を上位バイトと下位バイトに分ける
-                            let angH = (latestAngle >> 8) & 0xFF;
-                            let angL = latestAngle & 0xFF;
                             
-                            // [ヘッダー, X座標, Y座標, 角度上位, 角度下位] の5バイトを送信
-                            bleCharacteristic.writeValue(new Uint8Array([HEADER_AUTO, normX, normY, angH, angL]))
+                            // Y座標と角度を反転
+                            let sendY = 255 - normY; 
+                            let sendAngle = 360 - latestAngle; 
+                            
+                            let angH = (sendAngle >> 8) & 0xFF;
+                            let angL = sendAngle & 0xFF;
+                            
+                            bleCharacteristic.writeValue(new Uint8Array([HEADER_AUTO, normX, sendY, angH, angL]))
                                 .then(() => isSending = false).catch(() => isSending = false);
                         }
                     }
@@ -332,16 +343,18 @@
                 
                 let coordsText = `Pos:(${pixelX}, ${pixelY})`;
                 if (hasAngle) coordsText += ` Ang:${latestAngle}`;
+                else if (centerPos) coordsText += ` Ang:??? (Front Lost)`;
+                else coordsText = `Searching Yellow...`;
+                
                 cv.putText(src, coordsText, new cv.Point(20, 70), cv.FONT_HERSHEY_SIMPLEX, 0.6, [255, 255, 0, 255], 1.5);
 
                 cv.imshow('canvas', src);
-                src.delete(); hsv.delete(); mask.delete(); low.delete(); high.delete(); contours.delete(); hierarchy.delete();
+                src.delete(); hsv.delete();
 
             } catch (e) { console.log(e); }
             requestAnimationFrame(processLoop);
         }
 
-        // ★切断対策を施したBluetooth接続処理
         async function connectBluetooth() {
             const SERVICE_UUID = '0000aaaa-0000-1000-8000-00805f9b34fb';
             const CHARACTERISTIC_UUID = '0000bbbb-0000-1000-8000-00805f9b34fb';
@@ -351,7 +364,6 @@
 
                 bleDevice = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [SERVICE_UUID] });
                 
-                // 切断を検知して画面表示を更新するイベントリスナー
                 bleDevice.addEventListener('gattserverdisconnected', () => {
                     document.getElementById('status').textContent = "BLE切断されました";
                     document.getElementById('status').style.color = "red";
@@ -359,8 +371,6 @@
                 });
 
                 const server = await bleDevice.gatt.connect();
-                
-                // 接続直後にマイコン側の準備が整うまで0.5秒待つ
                 await new Promise(resolve => setTimeout(resolve, 500));
 
                 const service = await server.getPrimaryService(SERVICE_UUID);
