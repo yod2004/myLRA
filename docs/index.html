@@ -24,10 +24,10 @@
         .tab { padding: 10px 15px; font-size: 1rem; opacity: 0.6; background: #444; color: #fff; border: 2px solid transparent;}
         
         #mode3Btn.active { opacity: 1; background-color: #4CAF50; border-color: #81C784; }
-        #mode5Btn.active { opacity: 1; background-color: #00BCD4; border-color: #4DD0E1; } /* 新規追加: Mode 5 (シアン) */
-        #mode1Btn.active { opacity: 1; background-color: #2196F3; border-color: #64B5F6; } /* 3秒記録 */
-        #mode2Btn.active { opacity: 1; background-color: #9C27B0; border-color: #BA68C8; } /* 自動追尾 */
-        #mode4Btn.active { opacity: 1; background-color: #FF5722; border-color: #FFAB91; } /* 動画解析 */
+        #mode5Btn.active { opacity: 1; background-color: #00BCD4; border-color: #4DD0E1; }
+        #mode1Btn.active { opacity: 1; background-color: #2196F3; border-color: #64B5F6; }
+        #mode2Btn.active { opacity: 1; background-color: #9C27B0; border-color: #BA68C8; }
+        #mode4Btn.active { opacity: 1; background-color: #FF5722; border-color: #FFAB91; }
 
         #file-input-container { display: none; margin: 20px auto; padding: 15px; background: #333; border-radius: 8px; max-width: 400px; }
         
@@ -40,7 +40,7 @@
         }
         .d-btn:active { box-shadow: 0 0 0 #222; transform: translateY(4px); }
         .mode3-active .d-btn { border: 2px solid #4CAF50; color: #4CAF50; }
-        .mode5-active .d-btn { border: 2px solid #00BCD4; color: #00BCD4; } /* 新規追加: Mode 5 十字キー装飾 */
+        .mode5-active .d-btn { border: 2px solid #00BCD4; color: #00BCD4; }
         .mode1-active .d-btn { border: 2px solid #2196F3; color: #2196F3; }
         #btn-up { top: 0; left: 85px; } #btn-down { bottom: 0; left: 85px; }
         #btn-left { top: 85px; left: 0; } #btn-right { top: 85px; right: 0; }
@@ -77,7 +77,8 @@
 
     <div class="mode-tabs">
         <button id="mode3Btn" class="tab active">Mode 3<br><span style="font-size:0.7em">動作確認</span></button>
-        <button id="mode5Btn" class="tab">Mode 5<br><span style="font-size:0.7em">別波形動作</span></button> <button id="mode1Btn" class="tab">Mode 1<br><span style="font-size:0.7em">3秒記録</span></button>
+        <button id="mode5Btn" class="tab">Mode 5<br><span style="font-size:0.7em">別波形動作</span></button>
+        <button id="mode1Btn" class="tab">Mode 1<br><span style="font-size:0.7em">3秒記録</span></button>
         <button id="mode2Btn" class="tab">Mode 2<br><span style="font-size:0.7em">自動追尾</span></button>
         <button id="mode4Btn" class="tab">Mode 4<br><span style="font-size:0.7em">動画解析</span></button>
     </div>
@@ -121,7 +122,6 @@
     <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady()"></script>
 
     <script>
-        // ★新規追加: HEADER_MANUAL2 (別波形用のヘッダー 0x04)
         const HEADER_MANUAL = 0x01, HEADER_AUTO = 0x02, HEADER_PARAM = 0x03, HEADER_MANUAL2 = 0x04, DIR_STOP = 0;
         let videoElement, canvas, ctx;
         let bleDevice, bleCharacteristic;
@@ -144,7 +144,6 @@
             document.getElementById('connectButton').onclick = connectBluetooth;
             document.getElementById('btn-update').onclick = sendParamUpdate;
             
-            // ★変更: mode5 を追加
             [1,2,3,4,5].forEach(m => document.getElementById(`mode${m}Btn`).onclick = () => setMode(m));
 
             const videoInput = document.getElementById('videoInput');
@@ -197,14 +196,12 @@
             const status = document.getElementById('status');
             const canvasEl = document.getElementById('canvas');
 
-            // ★変更: mode5-active のクリア処理を追加
             dpad.classList.remove('mode1-active', 'mode3-active', 'mode5-active');
             fileContainer.style.display = (mode === 4) ? "block" : "none";
             paramArea.style.display = (mode === 4) ? "none" : "block";
             
             let color = "#fff";
             if (mode === 3) { status.textContent="Mode 3: 動作確認"; color="#4CAF50"; dpad.style.display="block"; dpad.classList.add('mode3-active'); saveArea.style.display="none"; }
-            // ★新規追加: Mode 5 の画面表示設定
             else if (mode === 5) { status.textContent="Mode 5: 別波形動作"; color="#00BCD4"; dpad.style.display="block"; dpad.classList.add('mode5-active'); saveArea.style.display="none"; }
             else if (mode === 1) { status.textContent="Mode 1: 3秒記録"; color="#2196F3"; dpad.style.display="block"; dpad.classList.add('mode1-active'); saveArea.style.display="block"; }
             else if (mode === 2) { status.textContent="Mode 2: 自動追尾"; color="#9C27B0"; dpad.style.display="none"; saveArea.style.display="none"; }
@@ -299,10 +296,16 @@
                         latestAngle = 0;
                     }
                     
+                    // ★変更箇所: 自動追尾モード(Mode 2)で角度データも送信
                     if (currentMode === 2 && bleCharacteristic && !isVideoFileMode) {
                         if (!isSending && Math.random() > 0.5) {
                             isSending = true;
-                            bleCharacteristic.writeValue(new Uint8Array([HEADER_AUTO, normX, normY]))
+                            // 角度(0〜359)を上位バイトと下位バイトに分ける
+                            let angH = (latestAngle >> 8) & 0xFF;
+                            let angL = latestAngle & 0xFF;
+                            
+                            // [ヘッダー, X座標, Y座標, 角度上位, 角度下位] の5バイトを送信
+                            bleCharacteristic.writeValue(new Uint8Array([HEADER_AUTO, normX, normY, angH, angL]))
                                 .then(() => isSending = false).catch(() => isSending = false);
                         }
                     }
@@ -336,20 +339,40 @@
             requestAnimationFrame(processLoop);
         }
 
+        // ★切断対策を施したBluetooth接続処理
         async function connectBluetooth() {
             const SERVICE_UUID = '0000aaaa-0000-1000-8000-00805f9b34fb';
             const CHARACTERISTIC_UUID = '0000bbbb-0000-1000-8000-00805f9b34fb';
             try {
+                document.getElementById('status').textContent = "接続試行中...";
+                document.getElementById('status').style.color = "#FF9800";
+
                 bleDevice = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [SERVICE_UUID] });
+                
+                // 切断を検知して画面表示を更新するイベントリスナー
+                bleDevice.addEventListener('gattserverdisconnected', () => {
+                    document.getElementById('status').textContent = "BLE切断されました";
+                    document.getElementById('status').style.color = "red";
+                    bleCharacteristic = null;
+                });
+
                 const server = await bleDevice.gatt.connect();
+                
+                // 接続直後にマイコン側の準備が整うまで0.5秒待つ
+                await new Promise(resolve => setTimeout(resolve, 500));
+
                 const service = await server.getPrimaryService(SERVICE_UUID);
                 bleCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+                
                 document.getElementById('status').textContent = "Bluetooth接続OK";
                 document.getElementById('status').style.color = "#4CAF50";
-            } catch (err) { alert("接続失敗: " + err); }
+            } catch (err) { 
+                alert("接続失敗: " + err); 
+                document.getElementById('status').textContent = "接続エラー";
+                document.getElementById('status').style.color = "red";
+            }
         }
 
-        // ★変更: 送信するヘッダーを引数で受け取れるようにする (デフォルトは HEADER_MANUAL)
         async function sendManualCommand(id, headerType = HEADER_MANUAL) {
             if (!bleCharacteristic || isVideoFileMode) return;
             try { await bleCharacteristic.writeValue(new Uint8Array([headerType, id, 0])); } catch(e) {}
@@ -386,7 +409,6 @@
                         sendManualCommand(id, HEADER_MANUAL); 
                         document.getElementById('status').textContent = `動作中: ${name}`; 
                     }
-                    // ★新規追加: Mode 5 の場合は別ヘッダー(HEADER_MANUAL2)を送信
                     else if(currentMode===5) { 
                         sendManualCommand(id, HEADER_MANUAL2); 
                         document.getElementById('status').textContent = `別波形で動作中: ${name}`; 
@@ -409,7 +431,6 @@
                         sendManualCommand(DIR_STOP, HEADER_MANUAL); 
                         document.getElementById('status').textContent="待機中"; 
                     } 
-                    // ★新規追加: Mode 5の停止コマンド
                     else if(currentMode===5) { 
                         sendManualCommand(DIR_STOP, HEADER_MANUAL2); 
                         document.getElementById('status').textContent="待機中"; 

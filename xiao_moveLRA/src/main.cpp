@@ -24,6 +24,9 @@ int paramRep1 = 4;
 int paramRes2 = 10;
 int paramRep2 = 4;
 int loopCount = 200;
+int normX = 0;
+int normY = 0;
+int angle = 0;
 
 // すべてのGPIOピンをLowに
 void stopAll() {
@@ -198,6 +201,9 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
         else if (header == 0x02 && len >= 3) {
             // モード2: 自動追尾開始など
             isAutoRunning = true;
+            normX = data[1];
+            normY = data[2];
+            angle = (data[3] << 8) | data[4];
         }
         // --- ★追加: パラメータ更新 (5バイト) ---
         else if (header == 0x03 && len >= 5) {
@@ -258,5 +264,6 @@ void loop() {
       // 例: 自動で何か動作させる場合
       // runPatternStep(1); 
       // checkStop();
+      printf("Auto mode running: normX=%d, normY=%d, angle=%d\n", normX, normY, angle);
   }
 }
