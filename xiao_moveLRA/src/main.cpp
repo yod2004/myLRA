@@ -245,7 +245,7 @@ void loop() {
   // --- 手動モード実行中 (manualIdが1~4の間) ---
   if (manualId > 0) {
     if(isNewTypeWave){
-      runPatternStep(manualId);
+      runPatternStep2(manualId);
     }else{
       runPatternStep(manualId);
       // runPatternStepの中でcheckStop()しているので、指を離せば次回ループでmanualId=0になり止まる
