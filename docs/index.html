@@ -73,6 +73,11 @@
     <div>
         <button id="connectButton" class="btn-sys" style="background-color: #007bff;">① Bluetooth 接続</button>
         <button id="cameraButton" class="btn-sys">② カメラ起動 (Webcam)</button>
+
+        <span style="display: inline-block; margin-left: 15px; background: #333; padding: 5px 10px; border-radius: 6px; border: 1px solid #555;">
+            <button id="btn-voltage" class="btn-sys" style="background-color: #9C27B0; padding: 8px 15px; margin: 0;">⚡ 電圧確認</button>
+            <span id="voltage-display" style="font-size: 1.2rem; font-weight: bold; margin-left: 10px; color: #E040FB;">-- V</span>
+        </span>
     </div>
 
     <div class="mode-tabs">
@@ -123,6 +128,7 @@
 
     <script>
         const HEADER_MANUAL = 0x01, HEADER_AUTO = 0x02, HEADER_PARAM = 0x03, HEADER_MANUAL2 = 0x04, DIR_STOP = 0;
+        const HEADER_VOLTAGE = 0x05; // 追加: 電圧確認用ヘッダ
         let videoElement, canvas, ctx;
         let bleDevice, bleCharacteristic;
         let cvReady = false;
@@ -153,6 +159,7 @@
             document.getElementById('cameraButton').onclick = startWebcam;
             document.getElementById('connectButton').onclick = connectBluetooth;
             document.getElementById('btn-update').onclick = sendParamUpdate;
+            document.getElementById('btn-voltage').onclick = requestVoltage;
             
             [1,2,3,4,5].forEach(m => document.getElementById(`mode${m}Btn`).onclick = () => setMode(m));
 
@@ -395,7 +402,8 @@
 
                 const service = await server.getPrimaryService(SERVICE_UUID);
                 bleCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
-                
+                await bleCharacteristic.startNotifications();
+                bleCharacteristic.addEventListener('characteristicvaluechanged', handleReceiveData);
                 document.getElementById('status').textContent = "Bluetooth接続OK";
                 document.getElementById('status').style.color = "#4CAF50";
             } catch (err) { 
@@ -481,6 +489,47 @@
             const a = document.createElement('a');
             a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
             a.download = `log_${Date.now()}.csv`; a.click();
+        }
+
+        async function requestVoltage() {
+            if (!bleCharacteristic || isVideoFileMode) {
+                alert("Bluetoothが接続されていないか、動画モードです。");
+                return;
+            }
+            try {
+                document.getElementById('voltage-display').textContent = "取得中...";
+                // コマンドヘッダ 0x05 のみを送信
+                await bleCharacteristic.writeValue(new Uint8Array([HEADER_VOLTAGE]));
+            } catch (e) {
+                console.log("電圧要求エラー:", e);
+                document.getElementById('voltage-display').textContent = "Error";
+            }
+        }
+
+        // ▼▼ 追加: マイコンからのNotifyを受信する関数 ▼▼
+        function handleReceiveData(event) {
+            const value = event.target.value;
+            let data = new Uint8Array(value.buffer);
+            
+            if (data.length > 0) {
+                // 受信データの1バイト目が 0x05 (HEADER_VOLTAGE) だった場合
+                if (data[0] === HEADER_VOLTAGE && data.length >= 3) {
+                    // 例: [0x05, 整数部, 小数部] で送られてくると仮定
+                    // 例: 3.7V なら [0x05, 3, 7]
+                    let volts_int = data[1];
+                    let volts_dec = data[2];
+                    document.getElementById('voltage-display').textContent = `${volts_int}.${volts_dec} V`;
+                }
+            }
+        }
+        // 文字列で受信する場合の受信関数
+        function handleReceiveData(event) {
+            const value = event.target.value;
+            const decoder = new TextDecoder('utf-8');
+            const str = decoder.decode(value); // 例: "3.72"
+            
+            // 簡易的に受信した文字列をそのまま表示
+            document.getElementById('voltage-display').textContent = `${str} V`;
         }
     </script>
 </body>
