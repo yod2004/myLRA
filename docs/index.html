@@ -522,15 +522,15 @@
                 }
             }
         }
-        // 文字列で受信する場合の受信関数
-        function handleReceiveData(event) {
-            const value = event.target.value;
-            const decoder = new TextDecoder('utf-8');
-            const str = decoder.decode(value); // 例: "3.72"
+        // // 文字列で受信する場合の受信関数
+        // function handleReceiveData(event) {
+        //     const value = event.target.value;
+        //     const decoder = new TextDecoder('utf-8');
+        //     const str = decoder.decode(value); // 例: "3.72"
             
-            // 簡易的に受信した文字列をそのまま表示
-            document.getElementById('voltage-display').textContent = `${str} V`;
-        }
+        //     // 簡易的に受信した文字列をそのまま表示
+        //     document.getElementById('voltage-display').textContent = `${str} V`;
+        // }
     </script>
 </body>
 </html>
