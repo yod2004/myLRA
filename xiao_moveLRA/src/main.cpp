@@ -221,6 +221,17 @@ void runPatternStep2(int id) {
   }
 }
 
+float Vbatt(){
+  uint32_t vbatt = 0;
+  for(uint8_t i=0; i<16; i++){
+    vbatt += analogReadMilliVolts(A0);
+  }
+  float vbattf = 2 * vbatt / 16 / 1000.0; //[V]
+  printf("Vbatt: %.2f V\n", vbattf);
+
+  return vbattf;
+}
+
 // 書き込みコールバック
 class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
@@ -263,15 +274,35 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             // Serial.printf("Params Updated: Res1=%d, Rep1=%d, Res2=%d, Rep2=%d\n", 
             //               paramRes1, paramRep1, paramRes2, paramRep2);
         }
+        else if(header == 0x05 && len >= 1){
+          // モード6: 電圧確認
+          float v = Vbatt(); // 移動させた関数で電圧を取得
+            
+          // 整数部と小数部（第一位）に分ける
+          // 例: 3.75V → int_part=3, dec_part=7
+          uint8_t int_part = (uint8_t)v;
+          uint8_t dec_part = (uint8_t)((v - int_part) * 10);
+          
+          // 送信用データ配列作成 [ヘッダ, 整数部, 小数部]
+          uint8_t txData[3] = {0x05, int_part, dec_part};
+          
+          // Web側へ Notify 送信
+          pCharacteristic->setValue(txData, 3);
+          pCharacteristic->notify();
+          // Serial.printf("Voltage Sent: %.2f V (Int: %d, Dec: %d)\n", v, int_part, dec_part);       
       }
     }
+  }
 };
+
+
 
 void setup() {
   // MDのGPIOピン設定
   pinMode(D2,OUTPUT); pinMode(D3,OUTPUT);
   pinMode(D6,OUTPUT); pinMode(D7,OUTPUT);
   pinMode(D8,OUTPUT); pinMode(D10,OUTPUT);
+  pinMode(A0, INPUT);//電源監視用
   // dacの設定
   dac1.begin(0x62);
 
@@ -284,7 +315,8 @@ void setup() {
   BLEService *pService = pServer->createService(SERVICE_UUID);
   BLECharacteristic *pCharacteristic = pService->createCharacteristic(
                       CHARACTERISTIC_UUID,
-                      BLECharacteristic::PROPERTY_WRITE
+                      BLECharacteristic::PROPERTY_WRITE| 
+                      BLECharacteristic::PROPERTY_NOTIFY
                     );
   pCharacteristic->setCallbacks(new MyCharacteristicCallbacks());
   pService->start();
@@ -303,7 +335,7 @@ void loop() {
       runPatternStep(manualId);
       // runPatternStepの中でcheckStop()しているので、指を離せば次回ループでmanualId=0になり止まる
     }
-    return; 
+    return;
   }
   
   // 自動モードの処理が必要であればここに記述
