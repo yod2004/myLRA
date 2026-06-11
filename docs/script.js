@@ -239,8 +239,9 @@ function processLoop() {
                     let commandId = 0; // 0:停止
 
                     // 1. ロボットからターゲットへのベクトル (dx, dy)
-                    let dx = targetX - pixelX;
-                    let dy = targetY - pixelY;
+                    // targetX/Y も centerPos もcanvas座標系。pixelX/Y(ビデオ実解像度)と混ぜない
+                    let dx = targetX - centerPos.x;
+                    let dy = targetY - centerPos.y;
 
                     // 2. 角度をラジアンに変換
                     let rad = latestAngle * (Math.PI / 180);

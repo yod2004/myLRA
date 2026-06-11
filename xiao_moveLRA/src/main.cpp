@@ -54,11 +54,8 @@ class MyServerCallbacks: public BLEServerCallbacks {
 // 停止指令が来ていないかチェックする関数
 // 手動モードで指を離した(manualIdが0になった)ら true を返す
 bool checkStop() {
-  // 手動モード実行中なのに、通信によって停止(0)に書き換わっていたら中断
-  if (manualId == 0 && !isAutoRunning) return true; 
-  
-  // 自動モード中にSTOPされたら中断
-  if (isAutoRunning == false && manualId == 0) return true;
+  // 停止(manualId=0)かつ自動モードでもなければ中断
+  if (manualId == 0 && !isAutoRunning) return true;
 
   return false;
 }
