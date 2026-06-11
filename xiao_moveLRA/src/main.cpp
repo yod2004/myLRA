@@ -21,10 +21,10 @@ int advanceDir = 0;      // 自動モードでの進行方向(0:右,1:前,2:左,
 
 // --- パラメータ変数 ---
 // 初期値を設定
-int paramRes1 = 5;
-int paramRep1 = 4;
-int paramRes2 = 10;
-int paramRep2 = 4;
+int paramRes1 = 19;
+int paramRep1 = 3;
+int paramRes2 = 30;
+int paramRep2 = 5;
 int loopCount = 200;
 int normX = 0;
 int normY = 0;
@@ -148,6 +148,31 @@ void move3(int res1, int res2, bool isDir){
   }
 }
 
+void move4(int res1, int res2, bool isDir){
+  if(res1 <= 0) res1 = 1;
+  if(res2 <= 0) res2 = 1;
+  if(checkStop()) return; // ループの途中でも指が離れたら即終了
+  if(isDir){
+    digitalWrite(D2,LOW); digitalWrite(D3,HIGH);
+  }else{
+    digitalWrite(D2,HIGH); digitalWrite(D3,LOW);
+  }
+  for(uint8_t k=0; k<res1; k++){
+    dac1.setVoltage(4095 * 1.0 * fabs(sin(k * 2 * 3.14 / res1 / 2)), false, 800000);
+  }
+  delay(2);
+  
+  if(isDir){
+    digitalWrite(D2,HIGH); digitalWrite(D3,LOW);
+  }else{
+    digitalWrite(D2,LOW); digitalWrite(D3,HIGH);
+  }
+  for(uint8_t k=0; k<res2; k++){
+    dac1.setVoltage(4095 * 1.0 * fabs(sin(k * 2 * 3.14 / res2 / 2)), false, 800000);
+  }
+  delay(2);
+}
+
 void autoMove(int targetX, int targetY, int nowX, int nowY, int nowAngle){//nowX:0~255 nowY:0~255
   int targetAngle = atan2((targetY - nowY), (targetX - nowX)) * 180 / 3.14;//[deg]
   if(targetAngle < 0) targetAngle += 360;
@@ -173,7 +198,7 @@ void autoMove(int targetX, int targetY, int nowX, int nowY, int nowAngle){//nowX
       }
     }else if(advanceDir == 2){
       // 左進
-      digitalWrite(D10, HIGH); move2(paramRes2, paramRep2, false);
+      digitalWrite(D10, HIGH); move4(paramRes2, paramRep2, false);
       if((0 <= diffAngle && diffAngle < 90) || (270 <= diffAngle && diffAngle < 360)){
         isAdvancing = false;
       }
@@ -185,7 +210,7 @@ void autoMove(int targetX, int targetY, int nowX, int nowY, int nowAngle){//nowX
       }
     }else if(advanceDir == 0){
       // 右進
-      digitalWrite(D7, HIGH);  move2(paramRes2, paramRep2, true);
+      digitalWrite(D7, HIGH);  move4(paramRes2, paramRep2, true);
       if(90 <= diffAngle && diffAngle < 270){
         isAdvancing = false;
       }
@@ -200,10 +225,10 @@ void runPatternStep(int id) {
   
   switch(id) {
     // move() や move2() にグローバル変数の paramResX, paramRepX を渡すようにしています
-    case 1: digitalWrite(D6, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, true);  break;
-    case 2: digitalWrite(D8, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, false); break;
-    case 3: digitalWrite(D7, HIGH);  move2(paramRes2, paramRep2, true);  break;
-    case 4: digitalWrite(D10, HIGH); move2(paramRes2, paramRep2, false); break;
+    case 1: digitalWrite(D6, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, false);  break;
+    case 2: digitalWrite(D8, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, true); break;
+    case 3: digitalWrite(D7, HIGH);  move4(paramRes2, paramRep2, true);  break;
+    case 4: digitalWrite(D10, HIGH); move4(paramRes2, paramRep2, false); break;
   }
 }
 
@@ -214,10 +239,10 @@ void runPatternStep2(int id) {
   
   switch(id) {
     // move() や move2() にグローバル変数の paramResX, paramRepX を渡すようにしています
-    case 1: digitalWrite(D6, HIGH);  for(uint8_t i=0; i < 10; i++) move3(paramRes1, paramRep1, true);  break;
-    case 2: digitalWrite(D8, HIGH);  for(uint8_t i=0; i < 10; i++) move3(paramRes1, paramRep1, false); break;
-    case 3: digitalWrite(D7, HIGH);  for(uint8_t i=0; i < 10; i++) move3(paramRes2, paramRep2, true); break;
-    case 4: digitalWrite(D10, HIGH); for(uint8_t i=0; i < 10; i++) move3(paramRes2, paramRep2, false); break;
+    case 1: digitalWrite(D6, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, false);  break;
+    case 2: digitalWrite(D8, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, true); break;
+    case 3: digitalWrite(D7, HIGH);  for(uint8_t i=0; i < 10; i++) move4(paramRes2, paramRep2, true); break;
+    case 4: digitalWrite(D10, HIGH); for(uint8_t i=0; i < 10; i++) move4(paramRes2, paramRep2, false); break;
   }
 }
 
@@ -234,62 +259,45 @@ float Vbatt(){
 
 // 書き込みコールバック
 class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
-    void onWrite(BLECharacteristic *pCharacteristic) {
-      // 生データを取得
-      uint8_t* data = pCharacteristic->getData();
-      std::string valueStr = pCharacteristic->getValue(); // 長さ取得用
-      int len = valueStr.length();
+  void onWrite(BLECharacteristic *pCharacteristic) {
+    // 生データを取得
+    uint8_t* data = pCharacteristic->getData();
+    std::string valueStr = pCharacteristic->getValue(); // 長さ取得用
+    int len = valueStr.length();
 
-      if (len > 0) {
-        int header = data[0]; // 1バイト目で分岐
+    if (len > 0) {
+      int header = data[0]; // 1バイト目で分岐
 
-        // --- 既存の制御 (3バイト) ---
-        if (header == 0x01 && len >= 3) {
-            // モード1: 手動制御
-            isAutoRunning = false;
-            manualId = data[1];
-            isNewTypeWave = false;
-          } 
-          else if(header == 0x04 && len >= 3){
-            //モード5: 手動モード(新波形モード)
-            isAutoRunning = false;
-            manualId = data[1];
-            isNewTypeWave = true;
-        }
-        else if (header == 0x02 && len >= 3) {
-            // モード2: 自動追尾開始など
-            isAutoRunning = true;
-            normX = data[1];
-            normY = data[2];
-            angle = (data[3] << 8) | data[4];
-        }
-        // --- ★追加: パラメータ更新 (5バイト) ---
-        else if (header == 0x03 && len >= 5) {
-            // 受信データ: [0x03, Res1, Rep1, Res2, Rep2]
-            paramRes1 = data[1];
-            paramRep1 = data[2];
-            paramRes2 = data[3];
-            paramRep2 = data[4];
+      // --- 既存の制御 (3バイト) ---
+      if (header == 0x01 && len >= 3) {
+          // モード1: 手動制御
+          isAutoRunning = false;
+          manualId = data[1];
+          isNewTypeWave = false;
+        } 
+        else if(header == 0x04 && len >= 3){
+          //モード5: 手動モード(新波形モード)
+          isAutoRunning = false;
+          manualId = data[1];
+          isNewTypeWave = true;
+      }
+      else if (header == 0x02 && len >= 3) {
+          // モード2: 自動追尾開始など
+          isAutoRunning = true;
+          normX = data[1];
+          normY = data[2];
+          angle = (data[3] << 8) | data[4];
+      }
+      // --- ★追加: パラメータ更新 (5バイト) ---
+      else if (header == 0x03 && len >= 5) {
+          // 受信データ: [0x03, Res1, Rep1, Res2, Rep2]
+          paramRes1 = data[1];
+          paramRep1 = data[2];
+          paramRes2 = data[3];
+          paramRep2 = data[4];
 
-            // Serial.printf("Params Updated: Res1=%d, Rep1=%d, Res2=%d, Rep2=%d\n", 
-            //               paramRes1, paramRep1, paramRes2, paramRep2);
-        }
-        else if(header == 0x05 && len >= 1){
-          // モード6: 電圧確認
-          float v = Vbatt(); // 移動させた関数で電圧を取得
-            
-          // 整数部と小数部（第一位）に分ける
-          // 例: 3.75V → int_part=3, dec_part=7
-          uint8_t int_part = (uint8_t)v;
-          uint8_t dec_part = (uint8_t)((v - int_part) * 10);
-          
-          // 送信用データ配列作成 [ヘッダ, 整数部, 小数部]
-          uint8_t txData[3] = {0x05, int_part, dec_part};
-          
-          // Web側へ Notify 送信
-          pCharacteristic->setValue(txData, 3);
-          pCharacteristic->notify();
-          // Serial.printf("Voltage Sent: %.2f V (Int: %d, Dec: %d)\n", v, int_part, dec_part);       
+          // Serial.printf("Params Updated: Res1=%d, Rep1=%d, Res2=%d, Rep2=%d\n", 
+          //               paramRes1, paramRep1, paramRes2, paramRep2);
       }
     }
   }
