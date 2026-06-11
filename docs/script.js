@@ -14,6 +14,7 @@ const TARGET_TOLERANCE = 20;    // 目標にどれくらい近づけばOKとす�
 let normX=0, normY=0;
 let pixelX=0, pixelY=0;
 let latestAngle=0, currentDirStr="";
+let latestCenterX=0, latestCenterY=0, latestCenterTime=0; // 自動チューニング用の最新検出位置(canvas座標)
 
 const COLOR_CENTER_LOW = [20, 100, 100];
 const COLOR_CENTER_HIGH = [40, 255, 255];
@@ -106,7 +107,11 @@ window.onload = () => {
     document.getElementById('btn-update').onclick = sendParamUpdate;
     document.getElementById('btn-voltage').onclick = requestVoltage;
     
-    [1,2,3,4,5].forEach(m => document.getElementById(`mode${m}Btn`).onclick = () => setMode(m));
+    [1,2,3,4,5,6].forEach(m => document.getElementById(`mode${m}Btn`).onclick = () => setMode(m));
+
+    document.getElementById('t-start').onclick = startAutoTune;
+    document.getElementById('t-abort').onclick = () => { tuneAbort = true; };
+    document.getElementById('t-save').onclick = saveTuneCSV;
 
     const videoInput = document.getElementById('videoInput');
     videoInput.addEventListener('change', handleFileSelect, false);
@@ -159,6 +164,8 @@ function handleFileSelect(event) {
 }
 
 function setMode(mode) {
+    if (isTuning && mode !== 6) tuneAbort = true; // チューニング中にモードを離れたら中止
+
     currentMode = mode;
     document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
     document.getElementById(`mode${mode}Btn`).classList.add('active');
@@ -167,20 +174,23 @@ function setMode(mode) {
     const saveArea = document.getElementById('save-area');
     const paramArea = document.getElementById('param-area');
     const fileContainer = document.getElementById('file-input-container');
+    const tuneArea = document.getElementById('tune-area');
     const status = document.getElementById('status');
     const canvasEl = document.getElementById('canvas');
 
     dpad.classList.remove('mode1-active', 'mode3-active', 'mode5-active');
     fileContainer.style.display = (mode === 4) ? "block" : "none";
-    paramArea.style.display = (mode === 4) ? "none" : "block";
-    
+    paramArea.style.display = (mode === 4 || mode === 6) ? "none" : "block";
+    tuneArea.style.display = (mode === 6) ? "block" : "none";
+
     let color = "#fff";
     if (mode === 3) { status.textContent="Mode 3: 動作確認"; color="#4CAF50"; dpad.style.display="block"; dpad.classList.add('mode3-active'); saveArea.style.display="none"; }
     else if (mode === 5) { status.textContent="Mode 5: 別波形動作"; color="#00BCD4"; dpad.style.display="block"; dpad.classList.add('mode5-active'); saveArea.style.display="none"; }
     else if (mode === 1) { status.textContent="Mode 1: 3秒記録"; color="#2196F3"; dpad.style.display="block"; dpad.classList.add('mode1-active'); saveArea.style.display="block"; }
     else if (mode === 2) { status.textContent="Mode 2: 自動追尾"; color="#9C27B0"; dpad.style.display="none"; saveArea.style.display="none"; }
     else if (mode === 4) { status.textContent="Mode 4: 動画解析"; color="#FF5722"; dpad.style.display="none"; saveArea.style.display="block"; }
-    
+    else if (mode === 6) { status.textContent="Mode 6: 自動チューニング"; color="#E91E63"; dpad.style.display="none"; saveArea.style.display="none"; }
+
     status.style.color = color;
     canvasEl.style.borderColor = color;
 }
@@ -274,6 +284,7 @@ function processLoop() {
         let hasAngle = false;
 
         if (centerPos) {
+            latestCenterX = centerPos.x; latestCenterY = centerPos.y; latestCenterTime = Date.now();
             normX = Math.round((centerPos.x / canvas.width) * 255);
             normY = Math.round((centerPos.y / canvas.height) * 255);
 
@@ -526,7 +537,7 @@ async function requestVoltage() {
 function handleReceiveData(event) {
     const value = event.target.value;
     let data = new Uint8Array(value.buffer);
-    
+
     if (data.length > 0) {
         if (data[0] === HEADER_VOLTAGE && data.length >= 3) {
             let volts_int = data[1];
@@ -534,4 +545,158 @@ function handleReceiveData(event) {
             document.getElementById('voltage-display').textContent = `${volts_int}.${volts_dec} V`;
         }
     }
+}
+
+// ===== Mode 6: 自動パラメータチューニング =====
+// パラメータ(Res/Rep)の組み合わせを総当たりし、一定時間動かしてカメラで
+// 移動距離を計測 → 速度[px/s]でスコア化 → ベストを自動適用する
+let isTuning = false, tuneAbort = false;
+let tuneResults = [];
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const clampByte = (v) => Math.max(1, Math.min(255, Math.round(v) || 1));
+
+// 一定時間、検出位置を平均してノイズを抑えた位置を返す(検出が途切れていればnull)
+async function samplePosition(ms = 300) {
+    const xs = [], ys = []; let lastAng = null;
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) {
+        if (Date.now() - latestCenterTime < 250) {
+            xs.push(latestCenterX); ys.push(latestCenterY); lastAng = latestAngle;
+        }
+        await sleep(50);
+    }
+    if (xs.length === 0) return null;
+    const avg = a => a.reduce((s, v) => s + v, 0) / a.length;
+    return { x: avg(xs), y: avg(ys), angle: lastAng };
+}
+
+// 1方向に durMs 動かして速度[px/s]と向きのズレ[deg]を計測
+async function measureMove(cmdId, durMs) {
+    const p0 = await samplePosition(300);
+    if (!p0) return null;
+    await bleWrite(new Uint8Array([HEADER_MANUAL, cmdId, 0]));
+    await sleep(durMs);
+    await bleWrite(new Uint8Array([HEADER_MANUAL, DIR_STOP, 0]));
+    await sleep(400); // 静定待ち
+    const p1 = await samplePosition(300);
+    if (!p1) return null;
+    const dist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+    let drift = Math.abs(p1.angle - p0.angle);
+    if (drift > 180) drift = 360 - drift;
+    return { speed: dist / (durMs / 1000), drift };
+}
+
+function tuneRange(min, max, step) {
+    min = clampByte(min); max = clampByte(max); step = Math.max(1, Math.round(step) || 1);
+    const out = [];
+    for (let v = min; v <= max; v += step) out.push(v);
+    return out;
+}
+
+function setTuneProgress(text) { document.getElementById('t-progress').textContent = text; }
+
+function renderTuneResults() {
+    const sorted = [...tuneResults].sort((a, b) => b.score - a.score).slice(0, 10);
+    let html = "<tr><th>Res</th><th>Rep</th><th>速度[px/s]</th><th>角度ズレ[deg]</th></tr>";
+    sorted.forEach(r => {
+        html += `<tr><td>${r.res}</td><td>${r.rep}</td><td>${r.score.toFixed(1)}</td><td>${r.drift.toFixed(0)}</td></tr>`;
+    });
+    document.getElementById('t-results').innerHTML = html;
+}
+
+async function startAutoTune() {
+    if (isTuning) return;
+    if (!bleCharacteristic) { alert("先にBluetoothを接続してください"); return; }
+    if (Date.now() - latestCenterTime > 1000) { alert("カメラでマーカー(黄色)が検出できていません"); return; }
+
+    const axis = document.getElementById('t-axis').value; // 'fb' or 'lr'
+    const durMs = Math.max(300, parseInt(document.getElementById('t-dur').value) || 1500);
+    const resList = tuneRange(
+        document.getElementById('t-res-min').value,
+        document.getElementById('t-res-max').value,
+        document.getElementById('t-res-step').value);
+    const repList = tuneRange(
+        document.getElementById('t-rep-min').value,
+        document.getElementById('t-rep-max').value,
+        document.getElementById('t-rep-step').value);
+
+    const total = resList.length * repList.length;
+    const estSec = Math.round(total * (0.3 + 2 * (0.3 + durMs / 1000 + 0.7)));
+    if (total > 100 && !confirm(`${total}通りで約${Math.round(estSec / 60)}分かかります。実行しますか?`)) return;
+
+    // 対象でない側のパラメータは現在の入力値を維持する
+    const curR1 = clampByte(document.getElementById('p-res1').value);
+    const curP1 = clampByte(document.getElementById('p-rep1').value);
+    const curR2 = clampByte(document.getElementById('p-res2').value);
+    const curP2 = clampByte(document.getElementById('p-rep2').value);
+    const cmds = (axis === 'fb') ? [1, 2] : [3, 4]; // 前/後 or 右/左 (戻りながら計測)
+
+    isTuning = true; tuneAbort = false; tuneResults = [];
+    let consecutiveFails = 0, count = 0;
+
+    try {
+        for (const res of resList) {
+            for (const rep of repList) {
+                if (tuneAbort) break;
+                count++;
+                setTuneProgress(`${count}/${total} 計測中: Res=${res}, Rep=${rep} (推定残り${Math.round(estSec * (1 - count / total))}秒)`);
+
+                const p = (axis === 'fb') ? [res, rep, curR2, curP2] : [curR1, curP1, res, rep];
+                await bleCharacteristic.writeValue(new Uint8Array([HEADER_PARAM, p[0], p[1], p[2], p[3]]));
+                await sleep(200);
+
+                const go = await measureMove(cmds[0], durMs);
+                if (tuneAbort) break;
+                const back = await measureMove(cmds[1], durMs);
+
+                const runs = [go, back].filter(r => r !== null);
+                if (runs.length === 0) {
+                    consecutiveFails++;
+                    if (consecutiveFails >= 3) {
+                        alert("マーカーを3回連続で見失ったため中止します。照明や画角を確認してください。");
+                        tuneAbort = true; break;
+                    }
+                    continue;
+                }
+                consecutiveFails = 0;
+                const score = runs.reduce((s, r) => s + r.speed, 0) / runs.length;
+                const drift = runs.reduce((s, r) => s + r.drift, 0) / runs.length;
+                tuneResults.push({ axis, res, rep, score, drift,
+                    fwd: go ? go.speed : NaN, back: back ? back.speed : NaN });
+                renderTuneResults();
+            }
+            if (tuneAbort) break;
+        }
+    } finally {
+        try { await bleWrite(new Uint8Array([HEADER_MANUAL, DIR_STOP, 0])); } catch (e) {}
+        isTuning = false;
+    }
+
+    if (tuneResults.length > 0) {
+        const best = tuneResults.reduce((a, b) => (b.score > a.score ? b : a));
+        // ベスト値を入力欄に反映してファームにも送信
+        if (axis === 'fb') {
+            document.getElementById('p-res1').value = best.res;
+            document.getElementById('p-rep1').value = best.rep;
+        } else {
+            document.getElementById('p-res2').value = best.res;
+            document.getElementById('p-rep2').value = best.rep;
+        }
+        try { await sendParamUpdate(); } catch (e) {}
+        setTuneProgress(tuneAbort
+            ? `中止しました (${tuneResults.length}件計測済み)。暫定ベスト: Res=${best.res}, Rep=${best.rep} (${best.score.toFixed(1)} px/s) を適用しました`
+            : `完了! ベスト: Res=${best.res}, Rep=${best.rep} (${best.score.toFixed(1)} px/s) を適用しました`);
+    } else {
+        setTuneProgress("計測データなしで終了しました");
+    }
+}
+
+function saveTuneCSV() {
+    if (tuneResults.length === 0) { alert("結果がありません"); return; }
+    let csv = "Axis,Res,Rep,AvgSpeed(px/s),FwdSpeed(px/s),BackSpeed(px/s),Drift(deg)\n";
+    tuneResults.forEach(r => csv += `${r.axis},${r.res},${r.rep},${r.score.toFixed(2)},${r.fwd.toFixed(2)},${r.back.toFixed(2)},${r.drift.toFixed(1)}\n`);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = `tune_${Date.now()}.csv`; a.click();
 }
