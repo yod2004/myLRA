@@ -72,13 +72,21 @@
     </div>
 
     <div id="tune-area" style="display:none; background:#333; padding:12px; border-radius:8px; margin-top:10px;">
-        <div style="font-weight:bold; margin-bottom:10px; color:#E91E63;">自動パラメータチューニング</div>
-        <p style="font-size:0.8rem; color:#ccc; margin:5px 0;">※カメラ起動とBluetooth接続が必要です。各組み合わせで往復動作して速度を計測し、終了後にベスト値を自動適用します</p>
+        <div style="font-weight:bold; margin-bottom:10px; color:#E91E63;">自動パラメータ計測</div>
+        <p style="font-size:0.8rem; color:#ccc; margin:5px 0;">※カメラ起動とBluetooth接続、黄色・赤の両マーカーの検出が必要です。選んだパターンを固定で動かしながらパラメータを総当たりし、実際の移動方向(前後/左右成分)と回転を記録して最後にまとめます(自動適用はしません)。パターン1/2はRes1/Rep1、3/4はRes2/Rep2を探索します</p>
         <div class="param-row">
-            <div class="param-group"><label>対象</label>
-                <select id="t-axis" class="param-input">
-                    <option value="fb">前後 (Res1/Rep1)</option>
-                    <option value="lr">左右 (Res2/Rep2)</option>
+            <div class="param-group"><label>動かすパターン</label>
+                <select id="t-pattern" class="param-input">
+                    <option value="1">パターン1 (▲)</option>
+                    <option value="2">パターン2 (▼)</option>
+                    <option value="3">パターン3 (▶)</option>
+                    <option value="4">パターン4 (◀)</option>
+                </select>
+            </div>
+            <div class="param-group"><label>波形</label>
+                <select id="t-wave" class="param-input">
+                    <option value="normal">通常</option>
+                    <option value="new">別波形</option>
                 </select>
             </div>
             <div class="param-group"><label>動作時間[ms]</label><input type="number" id="t-dur" class="param-input" value="1500"></div>
@@ -99,6 +107,7 @@
             <button id="t-save" class="btn-save">💾 結果CSV</button>
         </div>
         <div id="t-progress" style="margin-top:8px; color:#FFD54F; font-size:0.9rem;"></div>
+        <div id="t-summary" style="margin-top:4px; color:#eee; font-size:0.9rem; text-align:left;"></div>
         <table id="t-results" style="margin-top:8px; border-collapse:collapse; color:#eee; font-size:0.85rem; width:100%; text-align:center;"></table>
     </div>
 

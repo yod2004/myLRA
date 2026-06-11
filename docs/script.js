@@ -15,6 +15,7 @@ let normX=0, normY=0;
 let pixelX=0, pixelY=0;
 let latestAngle=0, currentDirStr="";
 let latestCenterX=0, latestCenterY=0, latestCenterTime=0; // 自動チューニング用の最新検出位置(canvas座標)
+let latestAngleTime=0; // 前方マーカーが最後に検出できた時刻(角度の鮮度判定用)
 
 const COLOR_CENTER_LOW = [20, 100, 100];
 const COLOR_CENTER_HIGH = [40, 255, 255];
@@ -307,6 +308,7 @@ function processLoop() {
                 let deg = rad * (180 / Math.PI);
                 if (deg < 0) deg += 360;
                 latestAngle = Math.round(deg);
+                latestAngleTime = Date.now();
                 hasAngle = true;
 
                 drawArrow(centerPos.x, centerPos.y, frontPos.x, frontPos.y, 'rgb(0,255,0)');
@@ -547,9 +549,10 @@ function handleReceiveData(event) {
     }
 }
 
-// ===== Mode 6: 自動パラメータチューニング =====
-// パラメータ(Res/Rep)の組み合わせを総当たりし、一定時間動かしてカメラで
-// 移動距離を計測 → 速度[px/s]でスコア化 → ベストを自動適用する
+// ===== Mode 6: 自動パラメータ計測 =====
+// 動かすパターン(1~4)を固定し、パラメータ(Res/Rep)の組み合わせを総当たりして
+// 「実際にどの向きに動いたか」(ロボット座標系の前後/左右成分と回転)を記録、
+// 最後にまとめを表示する。評価方向は固定せず、自動適用もしない。
 let isTuning = false, tuneAbort = false;
 let tuneResults = [];
 
@@ -557,34 +560,69 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const clampByte = (v) => Math.max(1, Math.min(255, Math.round(v) || 1));
 
 // 一定時間、検出位置を平均してノイズを抑えた位置を返す(検出が途切れていればnull)
+// 角度は前方マーカーが新鮮なサンプルのみ円平均する(取れなければangle=null)
 async function samplePosition(ms = 300) {
-    const xs = [], ys = []; let lastAng = null;
+    const xs = [], ys = []; let cs = 0, sn = 0, na = 0;
     const t0 = Date.now();
     while (Date.now() - t0 < ms) {
         if (Date.now() - latestCenterTime < 250) {
-            xs.push(latestCenterX); ys.push(latestCenterY); lastAng = latestAngle;
+            xs.push(latestCenterX); ys.push(latestCenterY);
+            if (Date.now() - latestAngleTime < 250) {
+                const r = latestAngle * Math.PI / 180;
+                cs += Math.cos(r); sn += Math.sin(r); na++;
+            }
         }
         await sleep(50);
     }
     if (xs.length === 0) return null;
     const avg = a => a.reduce((s, v) => s + v, 0) / a.length;
-    return { x: avg(xs), y: avg(ys), angle: lastAng };
+    let angle = null;
+    if (na > 0) {
+        angle = Math.atan2(sn, cs) * 180 / Math.PI;
+        if (angle < 0) angle += 360;
+    }
+    return { x: avg(xs), y: avg(ys), angle };
 }
 
-// 1方向に durMs 動かして速度[px/s]と向きのズレ[deg]を計測
-async function measureMove(cmdId, durMs) {
+// 固定パターンで durMs 動かし、開始時のロボット向きを基準に移動を分解して返す
+// front: 前(+)/後(-) [px/s], right: 右(+)/左(-) [px/s] (Mode2と同じ向き定義),
+// rot: 回転 [deg/s], speed: 移動の速さ [px/s]
+async function measureTrial(cmdId, header, durMs) {
     const p0 = await samplePosition(300);
-    if (!p0) return null;
-    await bleWrite(new Uint8Array([HEADER_MANUAL, cmdId, 0]));
+    if (!p0 || p0.angle === null) return null;
+    await bleWrite(new Uint8Array([header, cmdId, 0]));
     await sleep(durMs);
-    await bleWrite(new Uint8Array([HEADER_MANUAL, DIR_STOP, 0]));
+    await bleWrite(new Uint8Array([header, DIR_STOP, 0]));
     await sleep(400); // 静定待ち
     const p1 = await samplePosition(300);
-    if (!p1) return null;
-    const dist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
-    let drift = Math.abs(p1.angle - p0.angle);
-    if (drift > 180) drift = 360 - drift;
-    return { speed: dist / (durMs / 1000), drift };
+    if (!p1 || p1.angle === null) return null;
+
+    const dx = p1.x - p0.x, dy = p1.y - p0.y;
+    const th = p0.angle * Math.PI / 180;
+    const sec = durMs / 1000;
+    const rot = ((p1.angle - p0.angle + 540) % 360) - 180; // [-180,180)
+    return {
+        front: (dx * Math.cos(th) + dy * Math.sin(th)) / sec,
+        right: (-dx * Math.sin(th) + dy * Math.cos(th)) / sec,
+        rot: rot / sec,
+        speed: Math.hypot(dx, dy) / sec,
+    };
+}
+
+// ロボットが画面端に近いときは中央に置き直されるまで待つ(中止で抜ける)
+async function waitForSafePosition() {
+    const mx = canvas.width * 0.12, my = canvas.height * 0.12;
+    while (!tuneAbort) {
+        const fresh = Date.now() - latestCenterTime < 500;
+        if (fresh &&
+            latestCenterX > mx && latestCenterX < canvas.width - mx &&
+            latestCenterY > my && latestCenterY < canvas.height - my) return true;
+        setTuneProgress(fresh
+            ? "ロボットが画面端に近いので中央付近に置き直してください…(自動で再開します)"
+            : "マーカーを探しています…");
+        await sleep(300);
+    }
+    return false;
 }
 
 function tuneRange(min, max, step) {
@@ -597,20 +635,43 @@ function tuneRange(min, max, step) {
 function setTuneProgress(text) { document.getElementById('t-progress').textContent = text; }
 
 function renderTuneResults() {
-    const sorted = [...tuneResults].sort((a, b) => b.score - a.score).slice(0, 10);
-    let html = "<tr><th>Res</th><th>Rep</th><th>速度[px/s]</th><th>角度ズレ[deg]</th></tr>";
-    sorted.forEach(r => {
-        html += `<tr><td>${r.res}</td><td>${r.rep}</td><td>${r.score.toFixed(1)}</td><td>${r.drift.toFixed(0)}</td></tr>`;
+    let html = "<tr><th>Res</th><th>Rep</th><th>前(+)/後(-)<br>[px/s]</th><th>右(+)/左(-)<br>[px/s]</th><th>回転<br>[deg/s]</th><th>速さ<br>[px/s]</th></tr>";
+    tuneResults.forEach(r => {
+        html += `<tr><td>${r.res}</td><td>${r.rep}</td><td>${r.front.toFixed(1)}</td><td>${r.right.toFixed(1)}</td><td>${r.rot.toFixed(1)}</td><td>${r.speed.toFixed(1)}</td></tr>`;
     });
     document.getElementById('t-results').innerHTML = html;
+}
+
+// 全計測が終わったら、方向ごとに目立つパラメータを一覧にする
+function renderTuneSummary() {
+    if (tuneResults.length === 0) return;
+    const best = (fn) => tuneResults.reduce((a, b) => (fn(b) > fn(a) ? b : a));
+    // ok: その方向に実際に動いた結果かどうか(全結果が逆向きなら「該当なし」)
+    const rows = [
+        ['前進が最大',   best(r => r.front),          r => `${r.front.toFixed(1)} px/s`,  r => r.front > 0],
+        ['後退が最大',   best(r => -r.front),         r => `${r.front.toFixed(1)} px/s`,  r => r.front < 0],
+        ['右移動が最大', best(r => r.right),          r => `${r.right.toFixed(1)} px/s`,  r => r.right > 0],
+        ['左移動が最大', best(r => -r.right),         r => `${r.right.toFixed(1)} px/s`,  r => r.right < 0],
+        ['回転が最大',   best(r => Math.abs(r.rot)),  r => `${r.rot.toFixed(1)} deg/s`,   null],
+        ['回転が最小',   best(r => -Math.abs(r.rot)), r => `${r.rot.toFixed(1)} deg/s`,   null],
+        ['速さが最大',   best(r => r.speed),          r => `${r.speed.toFixed(1)} px/s`,  null],
+    ];
+    let html = '<div style="font-weight:bold; margin:8px 0 4px; color:#FFD54F;">まとめ</div>';
+    rows.forEach(([label, r, fmt, ok]) => {
+        html += `<div>・${label}: ${(!ok || ok(r)) ? `Res=${r.res}, Rep=${r.rep} (${fmt(r)})` : '該当なし'}</div>`;
+    });
+    document.getElementById('t-summary').innerHTML = html;
 }
 
 async function startAutoTune() {
     if (isTuning) return;
     if (!bleCharacteristic) { alert("先にBluetoothを接続してください"); return; }
     if (Date.now() - latestCenterTime > 1000) { alert("カメラでマーカー(黄色)が検出できていません"); return; }
+    if (Date.now() - latestAngleTime > 1000) { alert("前方マーカー(赤)が検出できていません。向きの計測に必要です"); return; }
 
-    const axis = document.getElementById('t-axis').value; // 'fb' or 'lr'
+    const cmdId = parseInt(document.getElementById('t-pattern').value);
+    const wave = document.getElementById('t-wave').value; // 'normal' or 'new'
+    const header = (wave === 'new') ? HEADER_MANUAL2 : HEADER_MANUAL;
     const durMs = Math.max(300, parseInt(document.getElementById('t-dur').value) || 1500);
     const resList = tuneRange(
         document.getElementById('t-res-min').value,
@@ -622,17 +683,19 @@ async function startAutoTune() {
         document.getElementById('t-rep-step').value);
 
     const total = resList.length * repList.length;
-    const estSec = Math.round(total * (0.3 + 2 * (0.3 + durMs / 1000 + 0.7)));
+    const estSec = Math.round(total * (0.5 + durMs / 1000 + 1.0));
     if (total > 100 && !confirm(`${total}通りで約${Math.round(estSec / 60)}分かかります。実行しますか?`)) return;
 
-    // 対象でない側のパラメータは現在の入力値を維持する
+    // パターン1/2はRes1/Rep1、パターン3/4はRes2/Rep2をファームが使うので、対応する側を振る
+    const usesPair1 = (cmdId === 1 || cmdId === 2);
     const curR1 = clampByte(document.getElementById('p-res1').value);
     const curP1 = clampByte(document.getElementById('p-rep1').value);
     const curR2 = clampByte(document.getElementById('p-res2').value);
     const curP2 = clampByte(document.getElementById('p-rep2').value);
-    const cmds = (axis === 'fb') ? [1, 2] : [3, 4]; // 前/後 or 右/左 (戻りながら計測)
 
     isTuning = true; tuneAbort = false; tuneResults = [];
+    document.getElementById('t-summary').innerHTML = "";
+    renderTuneResults();
     let consecutiveFails = 0, count = 0;
 
     try {
@@ -640,62 +703,45 @@ async function startAutoTune() {
             for (const rep of repList) {
                 if (tuneAbort) break;
                 count++;
+
+                // 画面端に近づいていたら置き直しを待つ(自動では戻れない前提)
+                if (!(await waitForSafePosition())) break;
                 setTuneProgress(`${count}/${total} 計測中: Res=${res}, Rep=${rep} (推定残り${Math.round(estSec * (1 - count / total))}秒)`);
 
-                const p = (axis === 'fb') ? [res, rep, curR2, curP2] : [curR1, curP1, res, rep];
+                const p = usesPair1 ? [res, rep, curR2, curP2] : [curR1, curP1, res, rep];
                 await bleCharacteristic.writeValue(new Uint8Array([HEADER_PARAM, p[0], p[1], p[2], p[3]]));
                 await sleep(200);
 
-                const go = await measureMove(cmds[0], durMs);
-                if (tuneAbort) break;
-                const back = await measureMove(cmds[1], durMs);
-
-                const runs = [go, back].filter(r => r !== null);
-                if (runs.length === 0) {
+                const m = await measureTrial(cmdId, header, durMs);
+                if (m === null) {
                     consecutiveFails++;
                     if (consecutiveFails >= 3) {
-                        alert("マーカーを3回連続で見失ったため中止します。照明や画角を確認してください。");
+                        alert("マーカーを3回連続で見失ったため中止します。黄色・赤の両方が見えているか確認してください。");
                         tuneAbort = true; break;
                     }
                     continue;
                 }
                 consecutiveFails = 0;
-                const score = runs.reduce((s, r) => s + r.speed, 0) / runs.length;
-                const drift = runs.reduce((s, r) => s + r.drift, 0) / runs.length;
-                tuneResults.push({ axis, res, rep, score, drift,
-                    fwd: go ? go.speed : NaN, back: back ? back.speed : NaN });
+                tuneResults.push({ pattern: cmdId, wave, res, rep, ...m });
                 renderTuneResults();
             }
             if (tuneAbort) break;
         }
     } finally {
-        try { await bleWrite(new Uint8Array([HEADER_MANUAL, DIR_STOP, 0])); } catch (e) {}
+        try { await bleWrite(new Uint8Array([header, DIR_STOP, 0])); } catch (e) {}
         isTuning = false;
     }
 
-    if (tuneResults.length > 0) {
-        const best = tuneResults.reduce((a, b) => (b.score > a.score ? b : a));
-        // ベスト値を入力欄に反映してファームにも送信
-        if (axis === 'fb') {
-            document.getElementById('p-res1').value = best.res;
-            document.getElementById('p-rep1').value = best.rep;
-        } else {
-            document.getElementById('p-res2').value = best.res;
-            document.getElementById('p-rep2').value = best.rep;
-        }
-        try { await sendParamUpdate(); } catch (e) {}
-        setTuneProgress(tuneAbort
-            ? `中止しました (${tuneResults.length}件計測済み)。暫定ベスト: Res=${best.res}, Rep=${best.rep} (${best.score.toFixed(1)} px/s) を適用しました`
-            : `完了! ベスト: Res=${best.res}, Rep=${best.rep} (${best.score.toFixed(1)} px/s) を適用しました`);
-    } else {
-        setTuneProgress("計測データなしで終了しました");
-    }
+    renderTuneSummary();
+    setTuneProgress(tuneAbort
+        ? `中止しました (${tuneResults.length}/${total}件計測済み)`
+        : `完了! ${tuneResults.length}件計測しました。下のまとめとCSVを確認してください`);
 }
 
 function saveTuneCSV() {
     if (tuneResults.length === 0) { alert("結果がありません"); return; }
-    let csv = "Axis,Res,Rep,AvgSpeed(px/s),FwdSpeed(px/s),BackSpeed(px/s),Drift(deg)\n";
-    tuneResults.forEach(r => csv += `${r.axis},${r.res},${r.rep},${r.score.toFixed(2)},${r.fwd.toFixed(2)},${r.back.toFixed(2)},${r.drift.toFixed(1)}\n`);
+    let csv = "Pattern,Wave,Res,Rep,Front(px/s),Right(px/s),Rotation(deg/s),Speed(px/s)\n";
+    tuneResults.forEach(r => csv += `${r.pattern},${r.wave},${r.res},${r.rep},${r.front.toFixed(2)},${r.right.toFixed(2)},${r.rot.toFixed(2)},${r.speed.toFixed(2)}\n`);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     a.download = `tune_${Date.now()}.csv`; a.click();
