@@ -30,6 +30,21 @@ int normX = 0;
 int normY = 0;
 int angle = 0;
 
+// 半周期サイン波テーブル
+// ESP32-C3はFPU非搭載でsin()のソフト演算が遅いため、毎サンプル計算せず参照する
+uint16_t halfSineLUT[256];
+
+void buildHalfSineLUT() {
+  for (int i = 0; i < 256; i++) {
+    halfSineLUT[i] = (uint16_t)(4095 * fabs(sin(i * 2 * 3.14 / 256 / 2)));
+  }
+}
+
+// 4095*|sin(k*2*3.14/res/2)| 相当をテーブル参照で返す (res: 1~255)
+static inline uint16_t halfSine(int k, int res) {
+  return halfSineLUT[(k * 256) / res];
+}
+
 // すべてのGPIOピンをLowに
 void stopAll() {
   digitalWrite(D2, LOW); digitalWrite(D3, LOW);
@@ -43,6 +58,10 @@ class MyServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
       deviceConnected = true;
       Serial.println("Connect!");
+    }
+    void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) {
+      // 接続インターバル短縮を要求してコマンド遅延を減らす (単位1.25ms: 6=7.5ms, 12=15ms)
+      pServer->updateConnParams(param->connect.remote_bda, 6, 12, 0, 400);
     }
     void onDisconnect(BLEServer* pServer) {
       deviceConnected = false;
@@ -74,7 +93,7 @@ void move(int res, int repeatCount, bool isDir){
       digitalWrite(D2,HIGH); digitalWrite(D3,LOW);
     }
     for(uint8_t k=0; k<res; k++){
-      dac1.setVoltage(4095 * 1.0 * fabs(sin(k * 2 * 3.14 / res / 2)), false, 800000);
+      dac1.setVoltage(halfSine(k, res), false, 800000);
     }
   }
 
@@ -87,7 +106,7 @@ void move(int res, int repeatCount, bool isDir){
     digitalWrite(D2,LOW); digitalWrite(D3,HIGH);
   }
   for(uint8_t k=0; k<res; k++){
-    dac1.setVoltage(4095 * 1.0 * fabs(sin(k * 2 * 3.14 / res / 2)), false, 800000);
+    dac1.setVoltage(halfSine(k, res), false, 800000);
   }
 }
 
@@ -105,7 +124,7 @@ void move2(int res, int repeatCount, bool isDir){
       digitalWrite(D2,HIGH); digitalWrite(D3,LOW);
     }
     for(uint8_t k=0; k<res; k++){
-      dac1.setVoltage(4095 * 1.0 * fabs(sin(k * 2 * 3.14 / res / 2)), false, 800000);
+      dac1.setVoltage(halfSine(k, res), false, 800000);
     }
   }
 
@@ -118,7 +137,7 @@ void move2(int res, int repeatCount, bool isDir){
     digitalWrite(D2,LOW); digitalWrite(D3,HIGH);
   }
   for(uint8_t k=0; k<res; k++){
-    dac1.setVoltage(4095 * 1.0 * fabs(sin(k * 2 * 3.14 / res / 2)), false, 800000);
+    dac1.setVoltage(halfSine(k, res), false, 800000);
   }
 }
 
@@ -132,7 +151,7 @@ void move3(int res1, int res2, bool isDir){
     digitalWrite(D2,HIGH); digitalWrite(D3,LOW);
   }
   for(uint8_t k=0; k<res1; k++){
-    dac1.setVoltage(4095 * 1.0 * fabs(sin(k * 2 * 3.14 / res1 / 2)), false, 800000);
+    dac1.setVoltage(halfSine(k, res1), false, 800000);
   }
 
   if(isDir){
@@ -141,7 +160,7 @@ void move3(int res1, int res2, bool isDir){
     digitalWrite(D2,LOW); digitalWrite(D3,HIGH);
   }
   for(uint8_t k=0; k<res2; k++){
-    dac1.setVoltage(4095 * 1.0 * fabs(sin(k * 2 * 3.14 / res2 / 2)), false, 800000);
+    dac1.setVoltage(halfSine(k, res2), false, 800000);
   }
 }
 
@@ -155,7 +174,7 @@ void move4(int res1, int res2, bool isDir){
     digitalWrite(D2,HIGH); digitalWrite(D3,LOW);
   }
   for(uint8_t k=0; k<res1; k++){
-    dac1.setVoltage(4095 * 1.0 * fabs(sin(k * 2 * 3.14 / res1 / 2)), false, 800000);
+    dac1.setVoltage(halfSine(k, res1), false, 800000);
   }
   delay(2);
   
@@ -165,7 +184,7 @@ void move4(int res1, int res2, bool isDir){
     digitalWrite(D2,LOW); digitalWrite(D3,HIGH);
   }
   for(uint8_t k=0; k<res2; k++){
-    dac1.setVoltage(4095 * 1.0 * fabs(sin(k * 2 * 3.14 / res2 / 2)), false, 800000);
+    dac1.setVoltage(halfSine(k, res2), false, 800000);
   }
   delay(2);
 }
@@ -303,6 +322,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
 
 
 void setup() {
+  buildHalfSineLUT();
   // MDのGPIOピン設定
   pinMode(D2,OUTPUT); pinMode(D3,OUTPUT);
   pinMode(D6,OUTPUT); pinMode(D7,OUTPUT);
@@ -320,7 +340,8 @@ void setup() {
   BLEService *pService = pServer->createService(SERVICE_UUID);
   BLECharacteristic *pCharacteristic = pService->createCharacteristic(
                       CHARACTERISTIC_UUID,
-                      BLECharacteristic::PROPERTY_WRITE| 
+                      BLECharacteristic::PROPERTY_WRITE|
+                      BLECharacteristic::PROPERTY_WRITE_NR|
                       BLECharacteristic::PROPERTY_NOTIFY
                     );
   pCharacteristic->setCallbacks(new MyCharacteristicCallbacks());

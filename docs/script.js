@@ -15,12 +15,59 @@ let normX=0, normY=0;
 let pixelX=0, pixelY=0;
 let latestAngle=0, currentDirStr="";
 
-const COLOR_CENTER_LOW = [20, 100, 100]; 
+const COLOR_CENTER_LOW = [20, 100, 100];
 const COLOR_CENTER_HIGH = [40, 255, 255];
-const COLOR_FRONT_LOW1 = [0, 120, 70];   
+const COLOR_FRONT_LOW1 = [0, 120, 70];
 const COLOR_FRONT_HIGH1 = [10, 255, 255];
-const COLOR_FRONT_LOW2 = [165, 120, 70]; 
+const COLOR_FRONT_LOW2 = [165, 120, 70];
 const COLOR_FRONT_HIGH2 = [180, 255, 255];
+
+const DETECT_SCALE = 0.5; // 色検出は1/2解像度で行う(計算量1/4)
+let detectCanvas, detectCtx; // 検出用の縮小オフスクリーンキャンバス
+let mats = null; // 毎フレーム使い回すOpenCV Mat群(確保/解放を繰り返さない)
+
+// 解像度が変わったときだけMatを作り直す
+function ensureMats(sw, sh) {
+    if (mats && mats.sw === sw && mats.sh === sh) return;
+    freeMats();
+    const bound = (c) => new cv.Mat(sh, sw, cv.CV_8UC3, new cv.Scalar(c[0], c[1], c[2], 0));
+    mats = {
+        sw, sh,
+        src: new cv.Mat(sh, sw, cv.CV_8UC4),
+        rgb: new cv.Mat(),
+        hsv: new cv.Mat(),
+        mask: new cv.Mat(),
+        mask2: new cv.Mat(),
+        centerLow: bound(COLOR_CENTER_LOW),  centerHigh: bound(COLOR_CENTER_HIGH),
+        frontLow1: bound(COLOR_FRONT_LOW1),  frontHigh1: bound(COLOR_FRONT_HIGH1),
+        frontLow2: bound(COLOR_FRONT_LOW2),  frontHigh2: bound(COLOR_FRONT_HIGH2),
+    };
+}
+
+function freeMats() {
+    if (!mats) return;
+    for (const k of Object.keys(mats)) {
+        if (mats[k] && typeof mats[k].delete === 'function') mats[k].delete();
+    }
+    mats = null;
+}
+
+// 新しいビデオフレームが来たときだけ処理する(rAFだと同じフレームを二重処理する)
+function scheduleNext() {
+    if (videoElement.requestVideoFrameCallback) {
+        videoElement.requestVideoFrameCallback(processLoop);
+    } else {
+        requestAnimationFrame(processLoop);
+    }
+}
+
+// ファームがWrite Without Responseに対応していれば応答待ちなしで送る(低遅延)
+function bleWrite(bytes) {
+    if (bleCharacteristic.properties && bleCharacteristic.properties.writeWithoutResponse) {
+        return bleCharacteristic.writeValueWithoutResponse(bytes);
+    }
+    return bleCharacteristic.writeValue(bytes);
+}
 
 function waitForOpenCV() {
     if (window.cv && window.cv.Mat) {
@@ -35,6 +82,8 @@ window.onload = () => {
     videoElement = document.getElementById('videoElement');
     canvas = document.getElementById('canvas');
     ctx = canvas.getContext('2d', { willReadFrequently: true });
+    detectCanvas = document.createElement('canvas');
+    detectCtx = detectCanvas.getContext('2d', { willReadFrequently: true });
 
     canvas.addEventListener('mousedown', (e) => {
         const rect = canvas.getBoundingClientRect();
@@ -71,7 +120,7 @@ window.onload = () => {
     setMode(3); 
     
     waitForOpenCV();
-    requestAnimationFrame(processLoop);
+    scheduleNext();
 };
 
 async function startWebcam() {
@@ -136,45 +185,59 @@ function setMode(mode) {
     canvasEl.style.borderColor = color;
 }
 
-function findLargestColorCenter(hsvMat, lowColor1, highColor1, lowColor2=null, highColor2=null) {
-    let mask = new cv.Mat();
-    let low1 = new cv.Mat(hsvMat.rows, hsvMat.cols, hsvMat.type(), new cv.Scalar(lowColor1[0], lowColor1[1], lowColor1[2], 0));
-    let high1 = new cv.Mat(hsvMat.rows, hsvMat.cols, hsvMat.type(), new cv.Scalar(highColor1[0], highColor1[1], highColor1[2], 255));
-    cv.inRange(hsvMat, low1, high1, mask);
+// 縮小HSV画像から最大の色領域の重心を探し、canvas座標で返す
+// 境界値Mat・マスクMatは ensureMats() で確保したものを使い回す
+function findLargestColorCenter(hsvMat, lowMat1, highMat1, lowMat2 = null, highMat2 = null) {
+    cv.inRange(hsvMat, lowMat1, highMat1, mats.mask);
 
-    if (lowColor2 && highColor2) {
-        let mask2 = new cv.Mat();
-        let low2 = new cv.Mat(hsvMat.rows, hsvMat.cols, hsvMat.type(), new cv.Scalar(lowColor2[0], lowColor2[1], lowColor2[2], 0));
-        let high2 = new cv.Mat(hsvMat.rows, hsvMat.cols, hsvMat.type(), new cv.Scalar(highColor2[0], highColor2[1], highColor2[2], 255));
-        cv.inRange(hsvMat, low2, high2, mask2);
-        
-        cv.bitwise_or(mask, mask2, mask);
-        
-        mask2.delete(); low2.delete(); high2.delete();
+    if (lowMat2 && highMat2) {
+        cv.inRange(hsvMat, lowMat2, highMat2, mats.mask2);
+        cv.bitwise_or(mats.mask, mats.mask2, mats.mask);
     }
 
     let contours = new cv.MatVector();
     let hierarchy = new cv.Mat();
-    cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    cv.findContours(mats.mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
     let maxArea = 0;
     let bestPos = null;
+    const minArea = 20 * DETECT_SCALE * DETECT_SCALE; // フル解像度での閾値20px^2相当
     for (let i = 0; i < contours.size(); i++) {
         let cnt = contours.get(i);
         let area = cv.contourArea(cnt, false);
-        if (area > 20 && area > maxArea) {
+        if (area > minArea && area > maxArea) {
             maxArea = area;
             let M = cv.moments(cnt);
-            bestPos = { x: M.m10 / M.m00, y: M.m01 / M.m00 };
+            // 縮小画像の座標をcanvas座標に戻す
+            bestPos = { x: (M.m10 / M.m00) / DETECT_SCALE, y: (M.m01 / M.m00) / DETECT_SCALE };
         }
+        cnt.delete();
     }
-    mask.delete(); low1.delete(); high1.delete(); contours.delete(); hierarchy.delete();
+    contours.delete(); hierarchy.delete();
     return bestPos;
+}
+
+// オーバーレイ描画ヘルパー(OpenCVではなく2D APIで直接canvasに描く)
+function drawCircle(x, y, r, fill, stroke = null) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke(); }
+}
+
+function drawArrow(x1, y1, x2, y2, color) {
+    const ang = Math.atan2(y2 - y1, x2 - x1), len = 10;
+    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+    ctx.moveTo(x2, y2); ctx.lineTo(x2 - len * Math.cos(ang - 0.4), y2 - len * Math.sin(ang - 0.4));
+    ctx.moveTo(x2, y2); ctx.lineTo(x2 - len * Math.cos(ang + 0.4), y2 - len * Math.sin(ang + 0.4));
+    ctx.stroke();
 }
 
 function processLoop() {
     try {
-        if (!cv) { requestAnimationFrame(processLoop); return; }
+        if (!cv) { scheduleNext(); return; }
 
         let vw = videoElement.videoWidth;
         let vh = videoElement.videoHeight;
@@ -183,22 +246,30 @@ function processLoop() {
             document.getElementById('resolution-display').textContent = `Resolution: ${vw} x ${vh}`;
         }
 
-        if (videoElement.paused || videoElement.ended) { requestAnimationFrame(processLoop); return; }
+        if (videoElement.paused || videoElement.ended) { scheduleNext(); return; }
 
         if (canvas.width !== 640) {
             let aspect = vh / vw;
             if(isNaN(aspect)) aspect = 0.75;
             canvas.width = 640; canvas.height = 640 * aspect;
         }
+        // 表示用はフル解像度で直接描画(OpenCVにフル画像は渡さない)
         ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
 
-        let src = cv.matFromImageData(ctx.getImageData(0, 0, canvas.width, canvas.height));
-        let hsv = new cv.Mat();
-        cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
-        cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
+        // 色検出は縮小画像に対して行う
+        const sw = Math.round(canvas.width * DETECT_SCALE);
+        const sh = Math.round(canvas.height * DETECT_SCALE);
+        if (detectCanvas.width !== sw || detectCanvas.height !== sh) {
+            detectCanvas.width = sw; detectCanvas.height = sh;
+        }
+        detectCtx.drawImage(videoElement, 0, 0, sw, sh);
+        ensureMats(sw, sh);
+        mats.src.data.set(detectCtx.getImageData(0, 0, sw, sh).data);
+        cv.cvtColor(mats.src, mats.rgb, cv.COLOR_RGBA2RGB);
+        cv.cvtColor(mats.rgb, mats.hsv, cv.COLOR_RGB2HSV);
 
-        let centerPos = findLargestColorCenter(hsv, COLOR_CENTER_LOW, COLOR_CENTER_HIGH);
-        let frontPos = findLargestColorCenter(hsv, COLOR_FRONT_LOW1, COLOR_FRONT_HIGH1, COLOR_FRONT_LOW2, COLOR_FRONT_HIGH2);
+        let centerPos = findLargestColorCenter(mats.hsv, mats.centerLow, mats.centerHigh);
+        let frontPos = findLargestColorCenter(mats.hsv, mats.frontLow1, mats.frontHigh1, mats.frontLow2, mats.frontHigh2);
 
         let hasAngle = false;
 
@@ -213,11 +284,11 @@ function processLoop() {
                 pixelX = normX; pixelY = normY;
             }
 
-            cv.circle(src, new cv.Point(centerPos.x, centerPos.y), 6, [255, 255, 0, 255], -1);
-            cv.circle(src, new cv.Point(centerPos.x, centerPos.y), 8, [0, 0, 0, 255], 2);
+            drawCircle(centerPos.x, centerPos.y, 6, 'rgb(255,255,0)');
+            drawCircle(centerPos.x, centerPos.y, 8, null, 'black');
 
             if (frontPos) {
-                cv.circle(src, new cv.Point(frontPos.x, frontPos.y), 4, [255, 0, 0, 255], -1); 
+                drawCircle(frontPos.x, frontPos.y, 4, 'rgb(255,0,0)');
 
                 let dx = frontPos.x - centerPos.x;
                 let dy = frontPos.y - centerPos.y;
@@ -227,7 +298,7 @@ function processLoop() {
                 latestAngle = Math.round(deg);
                 hasAngle = true;
 
-                cv.arrowedLine(src, new cv.Point(centerPos.x, centerPos.y), new cv.Point(frontPos.x, frontPos.y), [0, 255, 0, 255], 2);
+                drawArrow(centerPos.x, centerPos.y, frontPos.x, frontPos.y, 'rgb(0,255,0)');
             }
 
  if (currentMode === 2 && bleCharacteristic && !isVideoFileMode) {
@@ -271,7 +342,7 @@ function processLoop() {
                         
                         isSending = true; // ✅ 送信するときだけロックをかける
                         
-                        bleCharacteristic.writeValue(new Uint8Array([HEADER_MANUAL, commandId, 0]))
+                        bleWrite(new Uint8Array([HEADER_MANUAL, commandId, 0]))
                             .then(() => {
                                 lastCommandId = commandId;
                                 lastSendTime = now;
@@ -287,10 +358,13 @@ function processLoop() {
 
             // ★画面描画の追加（目標地点に×印を描画）
             if (targetX !== -1) {
-                // 緑色のクロスを描画
-                cv.line(src, new cv.Point(targetX - 10, targetY - 10), new cv.Point(targetX + 10, targetY + 10), [0, 255, 0, 255], 2);
-                cv.line(src, new cv.Point(targetX + 10, targetY - 10), new cv.Point(targetX - 10, targetY + 10), [0, 255, 0, 255], 2);
-                cv.putText(src, "TARGET", new cv.Point(targetX + 15, targetY), cv.FONT_HERSHEY_SIMPLEX, 0.5, [0, 255, 0, 255], 1);
+                ctx.strokeStyle = 'rgb(0,255,0)'; ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(targetX - 10, targetY - 10); ctx.lineTo(targetX + 10, targetY + 10);
+                ctx.moveTo(targetX + 10, targetY - 10); ctx.lineTo(targetX - 10, targetY + 10);
+                ctx.stroke();
+                ctx.fillStyle = 'rgb(0,255,0)'; ctx.font = '14px sans-serif';
+                ctx.fillText("TARGET", targetX + 15, targetY);
             }
         }
 
@@ -309,20 +383,21 @@ function processLoop() {
             updateLogCount();
         }
 
-        if (infoText) cv.putText(src, infoText, new cv.Point(20, 40), cv.FONT_HERSHEY_SIMPLEX, 0.8, [255, 255, 255, 255], 2);
-        
+        if (infoText) {
+            ctx.fillStyle = 'white'; ctx.font = 'bold 22px sans-serif';
+            ctx.fillText(infoText, 20, 40);
+        }
+
         let coordsText = `Pos:(${pixelX}, ${pixelY})`;
         if (hasAngle) coordsText += ` Ang:${latestAngle}`;
         else if (centerPos) coordsText += ` Ang:??? (Front Lost)`;
         else coordsText = `Searching Yellow...`;
-        
-        cv.putText(src, coordsText, new cv.Point(20, 70), cv.FONT_HERSHEY_SIMPLEX, 0.6, [255, 255, 0, 255], 1.5);
 
-        cv.imshow('canvas', src);
-        src.delete(); hsv.delete();
+        ctx.fillStyle = 'rgb(255,255,0)'; ctx.font = '16px sans-serif';
+        ctx.fillText(coordsText, 20, 70);
 
     } catch (e) { console.log(e); }
-    requestAnimationFrame(processLoop);
+    scheduleNext();
 }
 
 async function connectBluetooth() {
@@ -358,7 +433,7 @@ async function connectBluetooth() {
 
 async function sendManualCommand(id, headerType = HEADER_MANUAL) {
     if (!bleCharacteristic || isVideoFileMode) return;
-    try { await bleCharacteristic.writeValue(new Uint8Array([headerType, id, 0])); } catch(e) {}
+    try { await bleWrite(new Uint8Array([headerType, id, 0])); } catch(e) {}
 }
 
 async function sendParamUpdate() {
