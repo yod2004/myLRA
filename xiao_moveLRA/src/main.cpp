@@ -334,7 +334,12 @@ void setup() {
   stopAll();
 
   Serial.begin(115200);
-  BLEDevice::init("XIAO_ESP32_C3");
+  // 個体ごとに固有のBLE名にする(MAC下位2バイト)。2台以上を見分けられるように
+  uint64_t mac = ESP.getEfuseMac();
+  char devName[24];
+  snprintf(devName, sizeof(devName), "XIAO_LRA_%04X", (uint16_t)(mac & 0xFFFF));
+  Serial.printf("BLE name: %s\n", devName);
+  BLEDevice::init(devName);
   BLEServer *pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
   BLEService *pService = pServer->createService(SERVICE_UUID);
@@ -344,6 +349,9 @@ void setup() {
                       BLECharacteristic::PROPERTY_WRITE_NR|
                       BLECharacteristic::PROPERTY_NOTIFY
                     );
+  // NOTIFYを使うにはCCCD(0x2902)記述子が必要。
+  // 無いとブラウザのstartNotifications()が "GATT Error: Not supported" で失敗する
+  pCharacteristic->addDescriptor(new BLE2902());
   pCharacteristic->setCallbacks(new MyCharacteristicCallbacks());
   pService->start();
   BLEAdvertising *pAdvertising = pServer->getAdvertising();

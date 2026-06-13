@@ -568,9 +568,10 @@ async function connectBluetooth() {
         document.getElementById('status').style.color = "#FF9800";
 
         bleDevice = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [SERVICE_UUID] });
-        
+        const devName = bleDevice.name || "(名前なし)";
+
         bleDevice.addEventListener('gattserverdisconnected', () => {
-            document.getElementById('status').textContent = "BLE切断されました";
+            document.getElementById('status').textContent = `BLE切断: ${devName}`;
             document.getElementById('status').style.color = "red";
             bleCharacteristic = null;
         });
@@ -580,12 +581,22 @@ async function connectBluetooth() {
 
         const service = await server.getPrimaryService(SERVICE_UUID);
         bleCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
-        await bleCharacteristic.startNotifications();
-        bleCharacteristic.addEventListener('characteristicvaluechanged', handleReceiveData);
-        document.getElementById('status').textContent = "Bluetooth接続OK";
+
+        // 通知は電圧表示にしか使わない。CCCD未対応の旧ファームだと
+        // startNotifications()が "GATT Error: Not supported" を投げるが、
+        // コマンド送信(write)には不要なので失敗しても接続は継続する
+        try {
+            await bleCharacteristic.startNotifications();
+            bleCharacteristic.addEventListener('characteristicvaluechanged', handleReceiveData);
+        } catch (e) {
+            console.warn("通知の有効化に失敗(コマンド送信は可能):", e);
+        }
+
+        // 接続先デバイス名を表示して、どの機体に繋がったか分かるようにする
+        document.getElementById('status').textContent = `接続OK: ${devName}`;
         document.getElementById('status').style.color = "#4CAF50";
-    } catch (err) { 
-        alert("接続失敗: " + err); 
+    } catch (err) {
+        alert("接続失敗: " + err);
         document.getElementById('status').textContent = "接続エラー";
         document.getElementById('status').style.color = "red";
     }
