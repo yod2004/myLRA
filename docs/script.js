@@ -328,7 +328,7 @@ function sampleColorAt(cx, cy) {
     const vw = videoElement.videoWidth, vh = videoElement.videoHeight;
     const usingVideo = vw > 0 && vh > 0 && !videoElement.ended;
     // クリック点(canvas座標)を映像座標へ。映像が無ければcanvasから直接読む
-    const R = 3, W = 2 * R + 1;
+    const R = 4, W = 2 * R + 1;
     sampleCanvas.width = W; sampleCanvas.height = W;
     try {
         if (usingVideo) {
@@ -359,9 +359,12 @@ function sampleColorAt(cx, cy) {
     if (hue < 0) hue += 180;
     const c = det[sampleTarget];
     c.hue = Math.round(hue);
-    c.hueW = 14;
-    c.sMin = Math.max(40, minS - 50); // サンプルより少し緩めて変動を許容
-    c.vMin = Math.max(40, minV - 50);
+    c.hueW = 16;
+    // サンプル値の約半分を下限に(上限も設けて厳しくなりすぎないように)。
+    // マーカーは彩度が高く背景は低彩度なので、Sを主な弁別に使い緩めに取る。
+    // minSをそのまま使うと鮮やかな1点で下限が高くなりマスクが空になるため緩める
+    c.sMin = Math.min(150, Math.max(40, Math.round(minS * 0.5)));
+    c.vMin = Math.min(150, Math.max(30, Math.round(minV * 0.5)));
     buildColorRanges();
     updateDetectUI();
     document.getElementById('status').textContent =
