@@ -13,6 +13,13 @@ button:disabled { background-color: #555 !important; color: #888 !important; cur
 
 .btn-sys { font-size: 1rem; padding: 12px 20px; margin: 5px; background-color: #607D8B; color: white; }
 
+.detect-col { flex: 1; min-width: 200px; background: #1f1f1f; padding: 8px 10px; border-radius: 6px; }
+.slider-row { display: flex; align-items: center; gap: 6px; margin: 5px 0; }
+.slider-row label { width: 56px; font-size: 0.85rem; color: #ccc; flex-shrink: 0; }
+.slider-row input[type=range] { flex: 1; min-width: 60px; }
+.slider-row .sv { width: 34px; text-align: right; font-size: 0.85rem; color: #FFD54F; }
+.sample-btn.sampling { outline: 3px solid #fff; box-shadow: 0 0 8px #fff; }
+
 .mode-tabs { margin: 20px 0; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap;}
 .tab { padding: 10px 15px; font-size: 1rem; opacity: 0.6; background: #444; color: #fff; border: 2px solid transparent;}
 

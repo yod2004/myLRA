@@ -17,37 +17,70 @@ let latestAngle=0, currentDirStr="";
 let latestCenterX=0, latestCenterY=0, latestCenterTime=0; // 自動チューニング用の最新検出位置(canvas座標)
 let latestAngleTime=0; // 前方マーカーが最後に検出できた時刻(角度の鮮度判定用)
 
-const COLOR_CENTER_LOW = [20, 100, 100];
-const COLOR_CENTER_HIGH = [40, 255, 255];
-const COLOR_FRONT_LOW1 = [0, 120, 70];
-const COLOR_FRONT_HIGH1 = [10, 255, 255];
-const COLOR_FRONT_LOW2 = [165, 120, 70];
-const COLOR_FRONT_HIGH2 = [180, 255, 255];
+// --- 検出パラメータ(実行時に調整・キャリブレーション可能) ---
+// 各色は「色相中心 hue ± 幅 hueW」「彩度下限 sMin」「明度下限 vMin」で表現する。
+// この表現なら赤(0/180をまたぐ)も自動で2レンジに分割でき、UIも直感的。
+const det = {
+    center: { hue: 30, hueW: 12, sMin: 80, vMin: 80 }, // 中心マーカー(黄)
+    front:  { hue: 0,  hueW: 14, sMin: 90, vMin: 70 }, // 前方マーカー(赤/オレンジ)
+};
+let detectScale = 0.5;   // 色検出の解像度倍率(小さいマーカーは0.75/1.0で拾いやすい)
+let minAreaFull = 20;    // フル解像度基準の最小ブロブ面積[px^2]
+let useMorphology = true; // ノイズ除去・穴埋め(開閉処理)
+let showMask = false;     // マスクを画面に重ねて可視化
+let sampleTarget = null;  // 'center' | 'front': 次のキャンバスクリックで色をサンプリング
 
-const DETECT_SCALE = 0.5; // 色検出は1/2解像度で行う(計算量1/4)
 let detectCanvas, detectCtx; // 検出用の縮小オフスクリーンキャンバス
+let maskCanvas, maskCtx;     // マスク可視化用オフスクリーンキャンバス
 let mats = null; // 毎フレーム使い回すOpenCV Mat群(確保/解放を繰り返さない)
+
+// 色相中心±幅を、0..179でwrapを考慮した1~2個の[loH,hiH]区間に変換
+function hueRanges(hue, w) {
+    w = Math.min(w, 89);
+    let lo = hue - w, hi = hue + w;
+    if (lo < 0)   return [[180 + lo, 179], [0, hi]];
+    if (hi > 179) return [[lo, 179], [0, hi - 180]];
+    return [[lo, hi]];
+}
+
+// detの色定義から、inRange用の境界Mat(lo/hi)の配列を作り直す
+function buildColorRanges() {
+    if (!mats) return;
+    if (mats.colorRanges) {
+        for (const key in mats.colorRanges)
+            mats.colorRanges[key].forEach(r => { r.lo.delete(); r.hi.delete(); });
+    }
+    const make = (c) => hueRanges(c.hue, c.hueW).map(([h0, h1]) => ({
+        lo: new cv.Mat(mats.sh, mats.sw, cv.CV_8UC3, new cv.Scalar(h0, c.sMin, c.vMin, 0)),
+        hi: new cv.Mat(mats.sh, mats.sw, cv.CV_8UC3, new cv.Scalar(h1, 255, 255, 255)),
+    }));
+    mats.colorRanges = { center: make(det.center), front: make(det.front) };
+}
 
 // 解像度が変わったときだけMatを作り直す
 function ensureMats(sw, sh) {
     if (mats && mats.sw === sw && mats.sh === sh) return;
     freeMats();
-    const bound = (c) => new cv.Mat(sh, sw, cv.CV_8UC3, new cv.Scalar(c[0], c[1], c[2], 0));
     mats = {
         sw, sh,
         src: new cv.Mat(sh, sw, cv.CV_8UC4),
         rgb: new cv.Mat(),
         hsv: new cv.Mat(),
-        mask: new cv.Mat(),
-        mask2: new cv.Mat(),
-        centerLow: bound(COLOR_CENTER_LOW),  centerHigh: bound(COLOR_CENTER_HIGH),
-        frontLow1: bound(COLOR_FRONT_LOW1),  frontHigh1: bound(COLOR_FRONT_HIGH1),
-        frontLow2: bound(COLOR_FRONT_LOW2),  frontHigh2: bound(COLOR_FRONT_HIGH2),
+        maskCenter: new cv.Mat(),
+        maskFront: new cv.Mat(),
+        maskTmp: new cv.Mat(),
+        kernel: cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(3, 3)),
+        colorRanges: null,
     };
+    buildColorRanges();
 }
 
 function freeMats() {
     if (!mats) return;
+    if (mats.colorRanges) {
+        for (const key in mats.colorRanges)
+            mats.colorRanges[key].forEach(r => { r.lo.delete(); r.hi.delete(); });
+    }
     for (const k of Object.keys(mats)) {
         if (mats[k] && typeof mats[k].delete === 'function') mats[k].delete();
     }
@@ -86,20 +119,26 @@ window.onload = () => {
     ctx = canvas.getContext('2d', { willReadFrequently: true });
     detectCanvas = document.createElement('canvas');
     detectCtx = detectCanvas.getContext('2d', { willReadFrequently: true });
+    maskCanvas = document.createElement('canvas');
+    maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
 
     canvas.addEventListener('mousedown', (e) => {
         const rect = canvas.getBoundingClientRect();
         // キャンバス内のクリック位置を計算
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
-        
+
         // 実際の解像度(640x480)に合わせて座標変換
         const scaleX = canvas.width / rect.width;
         const scaleY = canvas.height / rect.height;
-        
-        targetX = Math.round(x * scaleX);
-        targetY = Math.round(y * scaleY);
-        
+        const cx = Math.round(x * scaleX);
+        const cy = Math.round(y * scaleY);
+
+        // 色サンプリング中ならクリックでHSVを取得(目標設定より優先)
+        if (sampleTarget) { sampleColorAt(cx, cy); return; }
+
+        targetX = cx;
+        targetY = cy;
         console.log(`目標セット: ${targetX}, ${targetY}`);
     });
 
@@ -113,6 +152,8 @@ window.onload = () => {
     document.getElementById('t-start').onclick = startAutoTune;
     document.getElementById('t-abort').onclick = () => { tuneAbort = true; };
     document.getElementById('t-save').onclick = saveTuneCSV;
+
+    setupDetectPanel();
 
     const videoInput = document.getElementById('videoInput');
     videoInput.addEventListener('change', handleFileSelect, false);
@@ -196,23 +237,35 @@ function setMode(mode) {
     canvasEl.style.borderColor = color;
 }
 
-// 縮小HSV画像から最大の色領域の重心を探し、canvas座標で返す
-// 境界値Mat・マスクMatは ensureMats() で確保したものを使い回す
-function findLargestColorCenter(hsvMat, lowMat1, highMat1, lowMat2 = null, highMat2 = null) {
-    cv.inRange(hsvMat, lowMat1, highMat1, mats.mask);
+// 縮小HSV画像から指定色の最大領域の重心を探し、canvas座標で返す
+// ranges: [{lo,hi}, ...] (赤など色相wrap時は複数)、outMask: 結果マスクの保存先
+// excludeMask: 指定すると、そのマスクに該当する画素を結果から除外(色レンジが
+//   中心色と被っても中心マーカーを誤検出しないための安全策)
+function findColor(hsvMat, ranges, outMask, excludeMask = null) {
+    ranges.forEach((r, i) => {
+        if (i === 0) {
+            cv.inRange(hsvMat, r.lo, r.hi, outMask);
+        } else {
+            cv.inRange(hsvMat, r.lo, r.hi, mats.maskTmp);
+            cv.bitwise_or(outMask, mats.maskTmp, outMask);
+        }
+    });
 
-    if (lowMat2 && highMat2) {
-        cv.inRange(hsvMat, lowMat2, highMat2, mats.mask2);
-        cv.bitwise_or(mats.mask, mats.mask2, mats.mask);
+    if (excludeMask) cv.subtract(outMask, excludeMask, outMask); // 中心色画素を除去(AND NOT)
+
+    if (useMorphology) {
+        // 開処理でゴマ塩ノイズを除去、閉処理でマーカー内部の穴を埋める
+        cv.morphologyEx(outMask, outMask, cv.MORPH_OPEN, mats.kernel);
+        cv.morphologyEx(outMask, outMask, cv.MORPH_CLOSE, mats.kernel);
     }
 
     let contours = new cv.MatVector();
     let hierarchy = new cv.Mat();
-    cv.findContours(mats.mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    cv.findContours(outMask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
     let maxArea = 0;
     let bestPos = null;
-    const minArea = 20 * DETECT_SCALE * DETECT_SCALE; // フル解像度での閾値20px^2相当
+    const minArea = minAreaFull * detectScale * detectScale; // フル解像度基準の面積に換算
     for (let i = 0; i < contours.size(); i++) {
         let cnt = contours.get(i);
         let area = cv.contourArea(cnt, false);
@@ -220,12 +273,65 @@ function findLargestColorCenter(hsvMat, lowMat1, highMat1, lowMat2 = null, highM
             maxArea = area;
             let M = cv.moments(cnt);
             // 縮小画像の座標をcanvas座標に戻す
-            bestPos = { x: (M.m10 / M.m00) / DETECT_SCALE, y: (M.m01 / M.m00) / DETECT_SCALE };
+            bestPos = { x: (M.m10 / M.m00) / detectScale, y: (M.m01 / M.m00) / detectScale };
         }
         cnt.delete();
     }
     contours.delete(); hierarchy.delete();
     return bestPos;
+}
+
+// 検出マスクを画面に半透明で重ねる(中心=黄、前方=赤)。閾値調整の目視確認用
+function drawMaskOverlay() {
+    const sw = mats.sw, sh = mats.sh;
+    if (maskCanvas.width !== sw || maskCanvas.height !== sh) { maskCanvas.width = sw; maskCanvas.height = sh; }
+    const img = maskCtx.createImageData(sw, sh);
+    const c = mats.maskCenter.data, f = mats.maskFront.data, d = img.data;
+    for (let i = 0, p = 0; i < c.length; i++, p += 4) {
+        if (f[i])      { d[p] = 255; d[p+1] = 0;   d[p+2] = 0; d[p+3] = 170; }
+        else if (c[i]) { d[p] = 255; d[p+1] = 255; d[p+2] = 0; d[p+3] = 150; }
+        else           { d[p+3] = 0; }
+    }
+    maskCtx.putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(maskCanvas, 0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = true;
+}
+
+// クリック位置のHSVを近傍平均でサンプリングし、その色のレンジを自動設定
+function sampleColorAt(cx, cy) {
+    if (!mats || !mats.hsv.data || mats.hsv.cols === 0) return;
+    const sw = mats.sw, sh = mats.sh;
+    const sx = Math.round(cx * detectScale), sy = Math.round(cy * detectScale);
+    let sumCos = 0, sumSin = 0, n = 0, minS = 255, minV = 255;
+    const data = mats.hsv.data;
+    for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+            const x = sx + dx, y = sy + dy;
+            if (x < 0 || y < 0 || x >= sw || y >= sh) continue;
+            const i = (y * sw + x) * 3;
+            const h = data[i], s = data[i+1], v = data[i+2];
+            const a = h * 2 * Math.PI / 180; // H:0..179 → 角度
+            sumCos += Math.cos(a); sumSin += Math.sin(a); n++;
+            if (s < minS) minS = s;
+            if (v < minV) minV = v;
+        }
+    }
+    if (n === 0) return;
+    let hue = Math.atan2(sumSin, sumCos) * 180 / (2 * Math.PI);
+    if (hue < 0) hue += 180;
+    const c = det[sampleTarget];
+    c.hue = Math.round(hue);
+    c.hueW = 14;
+    c.sMin = Math.max(40, minS - 50); // サンプルより少し緩めて変動を許容
+    c.vMin = Math.max(40, minV - 50);
+    buildColorRanges();
+    updateDetectUI();
+    const label = sampleTarget === 'center' ? '中心(黄)' : '前方(赤)';
+    document.getElementById('status').textContent =
+        `${label}の色を取得: H=${c.hue} S≥${c.sMin} V≥${c.vMin}`;
+    sampleTarget = null;
+    document.querySelectorAll('.sample-btn').forEach(b => b.classList.remove('sampling'));
 }
 
 // オーバーレイ描画ヘルパー(OpenCVではなく2D APIで直接canvasに描く)
@@ -279,8 +385,11 @@ function processLoop() {
         cv.cvtColor(mats.src, mats.rgb, cv.COLOR_RGBA2RGB);
         cv.cvtColor(mats.rgb, mats.hsv, cv.COLOR_RGB2HSV);
 
-        let centerPos = findLargestColorCenter(mats.hsv, mats.centerLow, mats.centerHigh);
-        let frontPos = findLargestColorCenter(mats.hsv, mats.frontLow1, mats.frontHigh1, mats.frontLow2, mats.frontHigh2);
+        let centerPos = findColor(mats.hsv, mats.colorRanges.center, mats.maskCenter);
+        // 前方は中心色(黄)を除外して探す → レンジが被っても中心を誤検出しない
+        let frontPos = findColor(mats.hsv, mats.colorRanges.front, mats.maskFront, mats.maskCenter);
+
+        if (showMask) drawMaskOverlay();
 
         let hasAngle = false;
 
@@ -509,6 +618,57 @@ function setupDpad() {
         };
         ['mousedown','touchstart'].forEach(ev=>btn.addEventListener(ev, press, {passive:false}));
         ['mouseup','mouseleave','touchend'].forEach(ev=>btn.addEventListener(ev, release));
+    });
+}
+
+// --- 検出設定パネル ---
+function setupDetectPanel() {
+    document.getElementById('detectToggle').onclick = () => {
+        const a = document.getElementById('detect-area');
+        a.style.display = (a.style.display === 'none' || !a.style.display) ? 'block' : 'none';
+    };
+
+    // 各色のスライダー(色相中心/幅/彩度下限/明度下限)を det に反映
+    [['center', 'c'], ['front', 'f']].forEach(([key, pre]) => {
+        [['hue', 179], ['hueW', 89], ['sMin', 255], ['vMin', 255]].forEach(([prop]) => {
+            const el = document.getElementById(`${pre}-${prop}`);
+            el.oninput = () => {
+                det[key][prop] = parseInt(el.value);
+                document.getElementById(`${pre}-${prop}-v`).textContent = el.value;
+                buildColorRanges();
+            };
+        });
+        document.getElementById(`${pre}-sample`).onclick = (e) => {
+            const on = sampleTarget !== key;
+            sampleTarget = on ? key : null;
+            document.querySelectorAll('.sample-btn').forEach(b => b.classList.remove('sampling'));
+            if (on) {
+                e.target.classList.add('sampling');
+                document.getElementById('status').textContent =
+                    `映像内の${key === 'center' ? '中心(黄)' : '前方(赤)'}マーカーをクリックしてください`;
+            }
+        };
+    });
+
+    document.getElementById('d-scale').onchange = (e) => { detectScale = parseFloat(e.target.value); };
+    document.getElementById('d-area').oninput = (e) => {
+        minAreaFull = parseInt(e.target.value);
+        document.getElementById('d-area-v').textContent = e.target.value;
+    };
+    document.getElementById('d-morph').onchange = (e) => { useMorphology = e.target.checked; };
+    document.getElementById('d-mask').onchange = (e) => { showMask = e.target.checked; };
+    updateDetectUI();
+}
+
+// det の現在値をスライダー類に反映(キャリブレーション後の同期にも使う)
+function updateDetectUI() {
+    [['center', 'c'], ['front', 'f']].forEach(([key, pre]) => {
+        ['hue', 'hueW', 'sMin', 'vMin'].forEach(prop => {
+            const el = document.getElementById(`${pre}-${prop}`);
+            if (!el) return;
+            el.value = det[key][prop];
+            document.getElementById(`${pre}-${prop}-v`).textContent = det[key][prop];
+        });
     });
 }
 

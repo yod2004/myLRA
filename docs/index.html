@@ -19,11 +19,49 @@
     <div>
         <button id="connectButton" class="btn-sys" style="background-color: #007bff;">① Bluetooth 接続</button>
         <button id="cameraButton" class="btn-sys">② カメラ起動 (Webcam)</button>
+        <button id="detectToggle" class="btn-sys" style="background-color: #607D8B;">🎯 検出設定</button>
 
         <span style="display: inline-block; margin-left: 15px; background: #333; padding: 5px 10px; border-radius: 6px; border: 1px solid #555;">
             <button id="btn-voltage" class="btn-sys" style="background-color: #9C27B0; padding: 8px 15px; margin: 0;">⚡ 電圧確認</button>
             <span id="voltage-display" style="font-size: 1.2rem; font-weight: bold; margin-left: 10px; color: #E040FB;">-- V</span>
         </span>
+    </div>
+
+    <div id="detect-area" style="display:none; background:#2a2a2a; padding:12px; border-radius:8px; margin-top:10px; text-align:left;">
+        <div style="font-weight:bold; margin-bottom:6px; color:#90A4AE;">検出設定 (色キャリブレーション)</div>
+        <p style="font-size:0.8rem; color:#bbb; margin:4px 0;">「色を取得」を押してから映像内のマーカーをクリックすると、その色に自動調整します。スライダーで微調整も可能。「マスク表示」で検出範囲を確認できます。</p>
+
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+            <div class="detect-col">
+                <div style="font-weight:bold; color:#FFD54F;">中心マーカー (黄)</div>
+                <button id="c-sample" class="sample-btn btn-sys" style="background:#FBC02D; color:#000; padding:6px 10px;">🖱️ 色を取得</button>
+                <div class="slider-row"><label>色相 H</label><input type="range" id="c-hue" min="0" max="179"><span id="c-hue-v" class="sv"></span></div>
+                <div class="slider-row"><label>幅 ±</label><input type="range" id="c-hueW" min="2" max="89"><span id="c-hueW-v" class="sv"></span></div>
+                <div class="slider-row"><label>彩度 S≥</label><input type="range" id="c-sMin" min="0" max="255"><span id="c-sMin-v" class="sv"></span></div>
+                <div class="slider-row"><label>明度 V≥</label><input type="range" id="c-vMin" min="0" max="255"><span id="c-vMin-v" class="sv"></span></div>
+            </div>
+            <div class="detect-col">
+                <div style="font-weight:bold; color:#FF8A80;">前方マーカー (赤)</div>
+                <button id="f-sample" class="sample-btn btn-sys" style="background:#E53935; padding:6px 10px;">🖱️ 色を取得</button>
+                <div class="slider-row"><label>色相 H</label><input type="range" id="f-hue" min="0" max="179"><span id="f-hue-v" class="sv"></span></div>
+                <div class="slider-row"><label>幅 ±</label><input type="range" id="f-hueW" min="2" max="89"><span id="f-hueW-v" class="sv"></span></div>
+                <div class="slider-row"><label>彩度 S≥</label><input type="range" id="f-sMin" min="0" max="255"><span id="f-sMin-v" class="sv"></span></div>
+                <div class="slider-row"><label>明度 V≥</label><input type="range" id="f-vMin" min="0" max="255"><span id="f-vMin-v" class="sv"></span></div>
+            </div>
+        </div>
+
+        <div style="margin-top:10px; display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
+            <label>検出解像度
+                <select id="d-scale" class="param-input" style="width:auto;">
+                    <option value="0.5">1/2 (高速)</option>
+                    <option value="0.75">3/4</option>
+                    <option value="1">等倍 (高精度)</option>
+                </select>
+            </label>
+            <span class="slider-row" style="margin:0;"><label>最小面積</label><input type="range" id="d-area" min="3" max="300" value="20"><span id="d-area-v" class="sv">20</span></span>
+            <label><input type="checkbox" id="d-morph" checked> ノイズ除去</label>
+            <label><input type="checkbox" id="d-mask"> マスク表示</label>
+        </div>
     </div>
 
     <div class="mode-tabs">
