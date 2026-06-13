@@ -32,6 +32,7 @@ let sampleTarget = null;  // 'center' | 'front': 次のキャンバスクリッ�
 
 let detectCanvas, detectCtx; // 検出用の縮小オフスクリーンキャンバス
 let maskCanvas, maskCtx;     // マスク可視化用オフスクリーンキャンバス
+let sampleCanvas, sampleCtx; // 色サンプリング用オフスクリーンキャンバス
 let mats = null; // 毎フレーム使い回すOpenCV Mat群(確保/解放を繰り返さない)
 
 // 色相中心±幅を、0..179でwrapを考慮した1~2個の[loH,hiH]区間に変換
@@ -121,6 +122,8 @@ window.onload = () => {
     detectCtx = detectCanvas.getContext('2d', { willReadFrequently: true });
     maskCanvas = document.createElement('canvas');
     maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+    sampleCanvas = document.createElement('canvas');
+    sampleCtx = sampleCanvas.getContext('2d', { willReadFrequently: true });
 
     canvas.addEventListener('mousedown', (e) => {
         const rect = canvas.getBoundingClientRect();
@@ -298,26 +301,60 @@ function drawMaskOverlay() {
     ctx.imageSmoothingEnabled = true;
 }
 
-// クリック位置のHSVを近傍平均でサンプリングし、その色のレンジを自動設定
-function sampleColorAt(cx, cy) {
-    if (!mats || !mats.hsv.data || mats.hsv.cols === 0) return;
-    const sw = mats.sw, sh = mats.sh;
-    const sx = Math.round(cx * detectScale), sy = Math.round(cy * detectScale);
-    let sumCos = 0, sumSin = 0, n = 0, minS = 255, minV = 255;
-    const data = mats.hsv.data;
-    for (let dy = -2; dy <= 2; dy++) {
-        for (let dx = -2; dx <= 2; dx++) {
-            const x = sx + dx, y = sy + dy;
-            if (x < 0 || y < 0 || x >= sw || y >= sh) continue;
-            const i = (y * sw + x) * 3;
-            const h = data[i], s = data[i+1], v = data[i+2];
-            const a = h * 2 * Math.PI / 180; // H:0..179 → 角度
-            sumCos += Math.cos(a); sumSin += Math.sin(a); n++;
-            if (s < minS) minS = s;
-            if (v < minV) minV = v;
-        }
+// RGB(0-255) → HSV(H:0-179, S:0-255, V:0-255)。OpenCVのRGB2HSVと同じスケール
+function rgb2hsvCV(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), df = mx - mn;
+    let h = 0;
+    if (df !== 0) {
+        if (mx === r)      h = 60 * (((g - b) / df) % 6);
+        else if (mx === g) h = 60 * ((b - r) / df + 2);
+        else               h = 60 * ((r - g) / df + 4);
     }
-    if (n === 0) return;
+    if (h < 0) h += 360;
+    const s = mx === 0 ? 0 : df / mx;
+    return [Math.round(h / 2), Math.round(s * 255), Math.round(mx * 255)];
+}
+
+// クリック位置の色を映像から直接サンプリングし、その色のレンジを自動設定
+// 描画ループやOpenCVのMatに依存せず、現在のビデオフレームから直接読む(堅牢)
+function sampleColorAt(cx, cy) {
+    const label = sampleTarget === 'center' ? '中心(黄)' : '前方(赤)';
+    const finish = () => {
+        sampleTarget = null;
+        document.querySelectorAll('.sample-btn').forEach(b => b.classList.remove('sampling'));
+    };
+
+    const vw = videoElement.videoWidth, vh = videoElement.videoHeight;
+    const usingVideo = vw > 0 && vh > 0 && !videoElement.ended;
+    // クリック点(canvas座標)を映像座標へ。映像が無ければcanvasから直接読む
+    const R = 3, W = 2 * R + 1;
+    sampleCanvas.width = W; sampleCanvas.height = W;
+    try {
+        if (usingVideo) {
+            const vx = Math.round(cx / canvas.width * vw);
+            const vy = Math.round(cy / canvas.height * vh);
+            sampleCtx.drawImage(videoElement, vx - R, vy - R, W, W, 0, 0, W, W);
+        } else {
+            // フォールバック: 表示中のcanvasから読む
+            sampleCtx.drawImage(canvas, cx - R, cy - R, W, W, 0, 0, W, W);
+        }
+    } catch (e) {
+        document.getElementById('status').textContent = "色の取得に失敗しました(映像を確認)";
+        finish(); return;
+    }
+
+    const px = sampleCtx.getImageData(0, 0, W, W).data;
+    let sumCos = 0, sumSin = 0, n = 0, minS = 255, minV = 255;
+    for (let p = 0; p < px.length; p += 4) {
+        const [h, s, v] = rgb2hsvCV(px[p], px[p+1], px[p+2]);
+        const a = h * 2 * Math.PI / 180;
+        sumCos += Math.cos(a); sumSin += Math.sin(a); n++;
+        if (s < minS) minS = s;
+        if (v < minV) minV = v;
+    }
+    if (n === 0) { finish(); return; }
+
     let hue = Math.atan2(sumSin, sumCos) * 180 / (2 * Math.PI);
     if (hue < 0) hue += 180;
     const c = det[sampleTarget];
@@ -327,11 +364,9 @@ function sampleColorAt(cx, cy) {
     c.vMin = Math.max(40, minV - 50);
     buildColorRanges();
     updateDetectUI();
-    const label = sampleTarget === 'center' ? '中心(黄)' : '前方(赤)';
     document.getElementById('status').textContent =
         `${label}の色を取得: H=${c.hue} S≥${c.sMin} V≥${c.vMin}`;
-    sampleTarget = null;
-    document.querySelectorAll('.sample-btn').forEach(b => b.classList.remove('sampling'));
+    finish();
 }
 
 // オーバーレイ描画ヘルパー(OpenCVではなく2D APIで直接canvasに描く)
