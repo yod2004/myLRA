@@ -66,6 +66,13 @@ class MyServerCallbacks: public BLEServerCallbacks {
     void onDisconnect(BLEServer* pServer) {
       deviceConnected = false;
       Serial.println("Disconnect!");
+      // 切断時に動作状態が残るとモータが回り続けてしまうので、停止して状態を戻す
+      manualId = 0;
+      isAutoRunning = false;
+      isAdvancing = false;
+      stopAll();
+      // 即時startだと失敗することがあるため少し待ってから再アドバタイズ
+      delay(200);
       pServer->getAdvertising()->start();
     }
 };
@@ -369,15 +376,14 @@ void loop() {
       runPatternStep(manualId);
       // runPatternStepの中でcheckStop()しているので、指を離せば次回ループでmanualId=0になり止まる
     }
-    return;
   }
-  
   // 自動モードの処理が必要であればここに記述
-  if (isAutoRunning) {
+  else if (isAutoRunning) {
     autoMove(0, 0, normX, normY, angle);
-      // 例: 自動で何か動作させる場合
-      // runPatternStep(1); 
-      // checkStop();
-      // Serial.printf("Auto mode running: normX=%d, normY=%d, angle=%d\n", normX, normY, angle);
   }
+
+  // ESP32-C3は単一コア。loop()がyieldせず回り続けるとBLEホストタスクが
+  // CPUを取れず、接続維持に失敗して勝手に切れる(アイドル時のbusy-spinも同様)。
+  // 毎周回わずかに譲ってBLEスタックに処理時間を与える
+  delay(1);
 }
