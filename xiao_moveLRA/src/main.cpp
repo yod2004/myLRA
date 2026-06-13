@@ -1,3 +1,28 @@
+/* =====================================================================
+ *  myLRA ハプティックリアクタ ファームウェア  (Seeed XIAO ESP32-C3)
+ *  ---------------------------------------------------------------------
+ *  Version : 1.2.0   (2026-06-12)
+ *  構成    : XIAO ESP32-C3 + MCP4725 DAC + モータドライバ + LRA
+ *  制御    : Web Bluetooth (docs/) から制御
+ *
+ *  現在の状態 / 主な機能:
+ *    - BLE名は個体ごとに固有  XIAO_LRA_xxxx (MAC下位2バイト)
+ *    - 手動制御(0x01) / 別波形(0x04) / パラメータ更新(0x03)
+ *    - 波形はサインLUT参照(C3はFPU非搭載のため高速化)
+ *    - Write Without Response + 接続インターバル短縮で低遅延
+ *    - 通知用CCCD(BLE2902)あり / loop()でyieldして接続安定化
+ *
+ *  既知の注意点:
+ *    - autoMove(0x02) はWeb側が未使用のため現状デッドコード
+ *    - 電圧監視 Vbatt() は未配線(0x05応答は未実装)
+ *
+ *  更新履歴:
+ *    1.2.0 - BLE切断対策(loop yield/切断時停止)・固有名・CCCD追加
+ *    1.1.0 - サインLUT/低遅延化・Mode6計測連携
+ *    1.0.0 - Web BLE制御の初版
+ * ===================================================================== */
+#define FW_VERSION "1.2.0"
+
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
@@ -341,6 +366,9 @@ void setup() {
   stopAll();
 
   Serial.begin(115200);
+  delay(100);
+  // 起動時にバージョンとビルド日時を表示(どの版が書き込まれているか確認用)
+  Serial.printf("\n=== myLRA FW v%s  build %s %s ===\n", FW_VERSION, __DATE__, __TIME__);
   // 個体ごとに固有のBLE名にする(MAC下位2バイト)。2台以上を見分けられるように
   uint64_t mac = ESP.getEfuseMac();
   char devName[24];
