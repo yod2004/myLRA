@@ -18,6 +18,20 @@
  * ===================================================================== */
 const APP_VERSION = "1.2.0";
 
+// 機体の判別ラベル: BLE名 "XIAO_LRA_xxxx" の xxxx を埋めると接続時に A / B 表示になる。
+// xxxx はシリアルの "BLE name: XIAO_LRA_xxxx" か、接続時のステータス表示で確認できる。
+// (Web BluetoothはMACを直接読めないが、この名前にMAC下位2バイトが入っている)
+const DEVICE_LABELS = {
+    // "XIAO_LRA_3F4A": "A",
+    // "XIAO_LRA_1B2C": "B",
+};
+
+// デバイス名からラベル付きの表示名を返す。未登録ならそのまま名前を返す
+function labelOf(name) {
+    const label = DEVICE_LABELS[name];
+    return label ? `${label} (${name})` : name;
+}
+
 const HEADER_MANUAL = 0x01, HEADER_AUTO = 0x02, HEADER_PARAM = 0x03, HEADER_MANUAL2 = 0x04, DIR_STOP = 0;
 const HEADER_VOLTAGE = 0x05; 
 let videoElement, canvas, ctx;
@@ -591,7 +605,7 @@ async function connectBluetooth() {
         const devName = bleDevice.name || "(名前なし)";
 
         bleDevice.addEventListener('gattserverdisconnected', () => {
-            document.getElementById('status').textContent = `BLE切断: ${devName}`;
+            document.getElementById('status').textContent = `BLE切断: ${labelOf(devName)}`;
             document.getElementById('status').style.color = "red";
             bleCharacteristic = null;
         });
@@ -612,8 +626,8 @@ async function connectBluetooth() {
             console.warn("通知の有効化に失敗(コマンド送信は可能):", e);
         }
 
-        // 接続先デバイス名を表示して、どの機体に繋がったか分かるようにする
-        document.getElementById('status').textContent = `接続OK: ${devName}`;
+        // 接続先デバイス名(ラベルがあればA/B)を表示して、どの機体に繋がったか分かるように
+        document.getElementById('status').textContent = `接続OK: ${labelOf(devName)}`;
         document.getElementById('status').style.color = "#4CAF50";
     } catch (err) {
         alert("接続失敗: " + err);
