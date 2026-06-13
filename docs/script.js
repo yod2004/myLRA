@@ -412,8 +412,8 @@ function processLoop() {
         ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
 
         // 色検出は縮小画像に対して行う
-        const sw = Math.round(canvas.width * DETECT_SCALE);
-        const sh = Math.round(canvas.height * DETECT_SCALE);
+        const sw = Math.round(canvas.width * detectScale);
+        const sh = Math.round(canvas.height * detectScale);
         if (detectCanvas.width !== sw || detectCanvas.height !== sh) {
             detectCanvas.width = sw; detectCanvas.height = sh;
         }
