@@ -71,6 +71,7 @@
         <button id="mode2Btn" class="tab">Mode 2<br><span style="font-size:0.7em">自動追尾</span></button>
         <button id="mode4Btn" class="tab">Mode 4<br><span style="font-size:0.7em">動画解析</span></button>
         <button id="mode6Btn" class="tab">Mode 6<br><span style="font-size:0.7em">自動調整</span></button>
+        <button id="mode7Btn" class="tab">Mode 7<br><span style="font-size:0.7em">個別設定</span></button>
     </div>
 
     <div id="file-input-container">
@@ -105,6 +106,43 @@
             <div style="font-size:0.8rem; color:#aaa; margin-bottom:4px;">出力波形プレビュー(現在のパラメータ / 上:前後 下:左右)</div>
             <canvas id="wave-canvas" width="360" height="150" style="width:100%; max-width:360px; background:#1a1a1a; border-radius:6px; display:block; margin:0 auto;"></canvas>
         </div>
+    </div>
+
+    <div id="dir-config-area" style="display:none; background:#333; padding:12px; border-radius:8px; margin-top:10px; text-align:left;">
+        <div style="font-weight:bold; margin-bottom:6px; color:#FFB300;">個別設定 (方向ごと)</div>
+        <p style="font-size:0.8rem; color:#ccc; margin:4px 0;">方向ごとに move関数の種類・繰り返し回数・res・rep を設定します。変更すると即送信(要接続)。D-padや矢印キーでこの設定の波形を動かして確認できます。move/move2 は(res, rep=回数)、move3/move4 は(res1=res, res2=rep)として扱われます。</p>
+        <table id="dir-config-table" style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+            <tr style="color:#aaa;"><th style="text-align:left;">方向</th><th>関数</th><th>回数</th><th>res</th><th>rep</th></tr>
+            <tr data-row="1">
+                <td style="color:#4CAF50; font-weight:bold;">前 ▲</td>
+                <td><select class="dc-func" data-id="1"><option value="1">move</option><option value="2">move2</option><option value="3">move3</option><option value="4">move4</option></select></td>
+                <td><input type="number" class="dc-outer" data-id="1" value="10"></td>
+                <td><input type="number" class="dc-res" data-id="1" value="19"></td>
+                <td><input type="number" class="dc-rep" data-id="1" value="3"></td>
+            </tr>
+            <tr data-row="2">
+                <td style="color:#4CAF50; font-weight:bold;">後 ▼</td>
+                <td><select class="dc-func" data-id="2"><option value="1">move</option><option value="2">move2</option><option value="3">move3</option><option value="4">move4</option></select></td>
+                <td><input type="number" class="dc-outer" data-id="2" value="10"></td>
+                <td><input type="number" class="dc-res" data-id="2" value="19"></td>
+                <td><input type="number" class="dc-rep" data-id="2" value="3"></td>
+            </tr>
+            <tr data-row="3">
+                <td style="color:#00BCD4; font-weight:bold;">右 ▶</td>
+                <td><select class="dc-func" data-id="3"><option value="1">move</option><option value="2">move2</option><option value="3">move3</option><option value="4" selected>move4</option></select></td>
+                <td><input type="number" class="dc-outer" data-id="3" value="1"></td>
+                <td><input type="number" class="dc-res" data-id="3" value="30"></td>
+                <td><input type="number" class="dc-rep" data-id="3" value="5"></td>
+            </tr>
+            <tr data-row="4">
+                <td style="color:#00BCD4; font-weight:bold;">左 ◀</td>
+                <td><select class="dc-func" data-id="4"><option value="1">move</option><option value="2">move2</option><option value="3">move3</option><option value="4" selected>move4</option></select></td>
+                <td><input type="number" class="dc-outer" data-id="4" value="1"></td>
+                <td><input type="number" class="dc-res" data-id="4" value="30"></td>
+                <td><input type="number" class="dc-rep" data-id="4" value="5"></td>
+            </tr>
+        </table>
+        <button id="dc-sendall" class="btn-sys" style="background:#FFB300; color:#000; margin-top:10px;">現在の設定を全部送信</button>
     </div>
 
     <div id="save-area">

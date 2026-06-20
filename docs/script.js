@@ -33,7 +33,9 @@ function labelOf(name) {
 }
 
 const HEADER_MANUAL = 0x01, HEADER_AUTO = 0x02, HEADER_PARAM = 0x03, HEADER_MANUAL2 = 0x04, DIR_STOP = 0;
-const HEADER_VOLTAGE = 0x05; 
+const HEADER_VOLTAGE = 0x05;
+const HEADER_DIRCFG = 0x06;  // 個別設定の更新 [0x06, id, func, outer, res, rep]
+const HEADER_CONFIG = 0x07;  // 個別設定モードの手動制御 [0x07, dir, 0]
 let videoElement, canvas, ctx;
 let bleDevice, bleCharacteristic;
 let cv; // cvReadyは使わず、cv変数の有無で管理
@@ -184,7 +186,7 @@ window.onload = () => {
     document.getElementById('btn-update').onclick = sendParamUpdate;
     document.getElementById('btn-voltage').onclick = requestVoltage;
     
-    [1,2,3,4,5,6].forEach(m => document.getElementById(`mode${m}Btn`).onclick = () => setMode(m));
+    [1,2,3,4,5,6,7].forEach(m => document.getElementById(`mode${m}Btn`).onclick = () => setMode(m));
 
     document.getElementById('t-start').onclick = startAutoTune;
     document.getElementById('t-abort').onclick = () => { tuneAbort = true; };
@@ -204,6 +206,7 @@ window.onload = () => {
     setupParamKeys();
     setupArrowKeys();
     setupWaveform();
+    setupDirConfig();
     setMode(3);
     
     waitForOpenCV();
@@ -257,17 +260,20 @@ function setMode(mode) {
     const paramArea = document.getElementById('param-area');
     const fileContainer = document.getElementById('file-input-container');
     const tuneArea = document.getElementById('tune-area');
+    const dirCfgArea = document.getElementById('dir-config-area');
     const status = document.getElementById('status');
     const canvasEl = document.getElementById('canvas');
 
-    dpad.classList.remove('mode1-active', 'mode3-active', 'mode5-active');
+    dpad.classList.remove('mode1-active', 'mode3-active', 'mode5-active', 'mode7-active');
     fileContainer.style.display = (mode === 4) ? "block" : "none";
-    paramArea.style.display = (mode === 4 || mode === 6) ? "none" : "block";
+    paramArea.style.display = (mode === 4 || mode === 6 || mode === 7) ? "none" : "block";
     tuneArea.style.display = (mode === 6) ? "block" : "none";
+    dirCfgArea.style.display = (mode === 7) ? "block" : "none";
 
     let color = "#fff";
     if (mode === 3) { status.textContent="Mode 3: 動作確認"; color="#4CAF50"; dpad.style.display="block"; dpad.classList.add('mode3-active'); saveArea.style.display="none"; }
     else if (mode === 5) { status.textContent="Mode 5: 別波形動作"; color="#00BCD4"; dpad.style.display="block"; dpad.classList.add('mode5-active'); saveArea.style.display="none"; }
+    else if (mode === 7) { status.textContent="Mode 7: 個別設定"; color="#FFB300"; dpad.style.display="block"; dpad.classList.add('mode7-active'); saveArea.style.display="none"; }
     else if (mode === 1) { status.textContent="Mode 1: 3秒記録"; color="#2196F3"; dpad.style.display="block"; dpad.classList.add('mode1-active'); saveArea.style.display="block"; }
     else if (mode === 2) { status.textContent="Mode 2: 自動追尾"; color="#9C27B0"; dpad.style.display="none"; saveArea.style.display="none"; }
     else if (mode === 4) { status.textContent="Mode 4: 動画解析"; color="#FF5722"; dpad.style.display="none"; saveArea.style.display="block"; }
@@ -665,42 +671,42 @@ async function sendParamUpdate() {
     }
 }
 
+// 現在のモードに応じた手動制御ヘッダー (3:通常 5:新波形 7:個別設定)
+function manualHeaderForMode() {
+    if (currentMode === 5) return HEADER_MANUAL2;
+    if (currentMode === 7) return HEADER_CONFIG;
+    return HEADER_MANUAL;
+}
+
 function setupDpad() {
     const btns = document.querySelectorAll('.d-btn');
     btns.forEach(btn => {
         const id = parseInt(btn.dataset.dir), name = btn.textContent;
         const press = (e) => {
-            e.preventDefault(); 
-            if(currentMode===3) { 
-                sendManualCommand(id, HEADER_MANUAL); 
-                document.getElementById('status').textContent = `動作中: ${name}`; 
-            }
-            else if(currentMode===5) { 
-                sendManualCommand(id, HEADER_MANUAL2); 
-                document.getElementById('status').textContent = `別波形で動作中: ${name}`; 
+            e.preventDefault();
+            if(currentMode===3 || currentMode===5 || currentMode===7) {
+                sendManualCommand(id, manualHeaderForMode());
+                const tag = currentMode===5 ? '別波形で動作中' : currentMode===7 ? '個別設定で動作中' : '動作中';
+                document.getElementById('status').textContent = `${tag}: ${name}`;
             }
             else if(currentMode===1 && !isRecording && !isVideoFileMode) {
-                isRecording=true; recordStartTime=Date.now(); currentDirStr=name; 
+                isRecording=true; recordStartTime=Date.now(); currentDirStr=name;
                 sendManualCommand(id, HEADER_MANUAL);
                 document.getElementById('status').textContent = `REC中: ${name}`;
-                setTimeout(()=>{ 
-                    sendManualCommand(DIR_STOP, HEADER_MANUAL); 
-                    isRecording=false; 
-                    document.getElementById('status').textContent="完了"; 
-                    updateLogCount(); 
+                setTimeout(()=>{
+                    sendManualCommand(DIR_STOP, HEADER_MANUAL);
+                    isRecording=false;
+                    document.getElementById('status').textContent="完了";
+                    updateLogCount();
                 }, 3000);
             }
         };
-        const release = (e) => { 
-            e.preventDefault(); 
-            if(currentMode===3) { 
-                sendManualCommand(DIR_STOP, HEADER_MANUAL); 
-                document.getElementById('status').textContent="待機中"; 
-            } 
-            else if(currentMode===5) { 
-                sendManualCommand(DIR_STOP, HEADER_MANUAL2); 
-                document.getElementById('status').textContent="待機中"; 
-            } 
+        const release = (e) => {
+            e.preventDefault();
+            if(currentMode===3 || currentMode===5 || currentMode===7) {
+                sendManualCommand(DIR_STOP, manualHeaderForMode());
+                document.getElementById('status').textContent="待機中";
+            }
         };
         ['mousedown','touchstart'].forEach(ev=>btn.addEventListener(ev, press, {passive:false}));
         ['mouseup','mouseleave','touchend'].forEach(ev=>btn.addEventListener(ev, release));
@@ -779,19 +785,47 @@ function setupWaveform() {
     drawWaveform();
 }
 
+// --- Mode 7: 方向ごとの個別設定 ---
+// 方向ID(1:前 2:後 3:右 4:左)ごとに 関数種別/外側繰り返し/res/rep を設定し送信
+function sendDirConfig(id) {
+    const q = (cls) => document.querySelector(`.${cls}[data-id="${id}"]`);
+    const clampB = (v) => Math.max(1, Math.min(255, parseInt(v) || 1));
+    const func  = Math.max(1, Math.min(4, parseInt(q('dc-func').value) || 1));
+    const outer = clampB(q('dc-outer').value);
+    const res   = clampB(q('dc-res').value);
+    const rep   = clampB(q('dc-rep').value);
+    if (bleCharacteristic) {
+        try { bleWrite(new Uint8Array([HEADER_DIRCFG, id, func, outer, res, rep])); } catch (e) {}
+    }
+    return { func, outer, res, rep };
+}
+
+function setupDirConfig() {
+    document.querySelectorAll('#dir-config-area select, #dir-config-area input').forEach(el => {
+        el.addEventListener('change', () => sendDirConfig(parseInt(el.dataset.id)));
+    });
+    document.getElementById('dc-sendall').onclick = () => {
+        [1, 2, 3, 4].forEach(sendDirConfig);
+        const st = document.getElementById('status');
+        st.textContent = bleCharacteristic ? '個別設定を全送信しました' : '未接続: 送信できません';
+        st.style.color = bleCharacteristic ? '#4CAF50' : 'red';
+    };
+}
+
 // 矢印キーで前後左右に動かす(D-padと同じ向き定義)。押している間だけ動く
 //   ↑=前(1) / ↓=後(2) / →=右(3) / ←=左(4)
 const ARROW_DIRS = { ArrowUp: [1, '前'], ArrowDown: [2, '後'], ArrowRight: [3, '右'], ArrowLeft: [4, '左'] };
 
 function setupArrowKeys() {
     const pressed = new Set();
-    const header = () => (currentMode === 5 ? HEADER_MANUAL2 : HEADER_MANUAL);
+    const moveModes = [3, 5, 7];
     const startMove = (dir, name) => {
-        sendManualCommand(dir, header());
-        document.getElementById('status').textContent = `${currentMode === 5 ? '別波形で' : ''}動作中: ${name}`;
+        sendManualCommand(dir, manualHeaderForMode());
+        const tag = currentMode === 5 ? '別波形で' : currentMode === 7 ? '個別設定で' : '';
+        document.getElementById('status').textContent = `${tag}動作中: ${name}`;
     };
     const stopMove = () => {
-        sendManualCommand(DIR_STOP, header());
+        sendManualCommand(DIR_STOP, manualHeaderForMode());
         document.getElementById('status').textContent = '待機中';
     };
 
@@ -800,7 +834,7 @@ function setupArrowKeys() {
         if (!a) return;
         const tag = (e.target.tagName || '').toLowerCase();
         if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-        if (currentMode !== 3 && currentMode !== 5) return; // 動作モード以外は通常スクロール
+        if (!moveModes.includes(currentMode)) return; // 動作モード以外は通常スクロール
         e.preventDefault();
         if (e.repeat) return;           // オートリピートは無視(押し始めの1回だけ送信)
         pressed.add(e.key);

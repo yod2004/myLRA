@@ -38,11 +38,19 @@ bool deviceConnected = false;
 Adafruit_MCP4725 dac1;
 
 // --- 状態管理 ---
-bool isNewTypeWave = false; // 新波形モードかどうか
+int manualMode = 0;         // 手動モードの種類 0:通常 1:新波形 2:個別設定
 bool isAutoRunning = false; // 自動ループ中か
 int manualId = 0;           // 手動実行中のパターンID (0=停止, 1~4=実行中)
 bool isAdvancing = false; // 自動モードで前進中かどうか
 int advanceDir = 0;      // 自動モードでの進行方向(0:右,1:前,2:左,3:後)
+
+// --- 個別設定モード(0x07)用: 方向ID(1~4)ごとの設定 ---
+// func 1:move 2:move2 3:move3 4:move4 / outer:外側の繰り返し回数 / p1,p2:res,rep
+// 既定値は通常モード(0x01)の挙動に合わせる
+uint8_t dirFunc[5]  = {0, 1, 1, 4, 4};
+uint8_t dirOuter[5] = {0, 10, 10, 1, 1};
+uint8_t dirP1[5]    = {0, 19, 19, 30, 30};
+uint8_t dirP2[5]    = {0, 3, 3, 5, 5};
 
 // --- パラメータ変数 ---
 // 初期値を設定
@@ -294,6 +302,26 @@ void runPatternStep2(int id) {
   }
 }
 
+// 個別設定モード: 方向ごとに 関数種別/外側繰り返し/p1/p2 を使って動かす
+void runDirConfig(int id) {
+  if (id < 1 || id > 4) return;
+  digitalWrite(D6, LOW); digitalWrite(D8, LOW); digitalWrite(D7, LOW); digitalWrite(D10, LOW);
+  // ID→ピンと極性は通常モードと同じ対応(1:前 2:後 3:右 4:左)
+  int pin  = (id == 1) ? D6 : (id == 2) ? D8 : (id == 3) ? D7 : D10;
+  bool dir = (id == 2 || id == 3);
+  digitalWrite(pin, HIGH);
+  int p1 = dirP1[id], p2 = dirP2[id];
+  for (uint8_t i = 0; i < dirOuter[id]; i++) {
+    switch (dirFunc[id]) {
+      case 1: move(p1, p2, dir);  break;
+      case 2: move2(p1, p2, dir); break;
+      case 3: move3(p1, p2, dir); break; // p1=res1, p2=res2
+      case 4: move4(p1, p2, dir); break; // p1=res1, p2=res2
+    }
+    if (checkStop()) return;
+  }
+}
+
 float Vbatt(){
   uint32_t vbatt = 0;
   for(uint8_t i=0; i<16; i++){
@@ -318,16 +346,32 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
 
       // --- 既存の制御 (3バイト) ---
       if (header == 0x01 && len >= 3) {
-          // モード1: 手動制御
+          // モード1: 手動制御(通常波形)
           isAutoRunning = false;
           manualId = data[1];
-          isNewTypeWave = false;
-        } 
+          manualMode = 0;
+        }
         else if(header == 0x04 && len >= 3){
           //モード5: 手動モード(新波形モード)
           isAutoRunning = false;
           manualId = data[1];
-          isNewTypeWave = true;
+          manualMode = 1;
+      }
+      else if (header == 0x07 && len >= 3) {
+          // モード7: 個別設定モードの手動制御
+          isAutoRunning = false;
+          manualId = data[1];
+          manualMode = 2;
+      }
+      else if (header == 0x06 && len >= 6) {
+          // 個別設定の更新: [0x06, id(1-4), func(1-4), outer, p1, p2]
+          int id = data[1];
+          if (id >= 1 && id <= 4) {
+            dirFunc[id]  = data[2];
+            dirOuter[id] = data[3];
+            dirP1[id]    = data[4];
+            dirP2[id]    = data[5];
+          }
       }
       else if (header == 0x02 && len >= 3) {
           // モード2: 自動追尾開始など
@@ -398,10 +442,12 @@ void setup() {
 void loop() {
   // --- 手動モード実行中 (manualIdが1~4の間) ---
   if (manualId > 0) {
-    if(isNewTypeWave){
-      runPatternStep2(manualId);
-    }else{
-      runPatternStep(manualId);
+    if (manualMode == 2) {
+      runDirConfig(manualId);     // 個別設定モード
+    } else if (manualMode == 1) {
+      runPatternStep2(manualId);  // 新波形モード
+    } else {
+      runPatternStep(manualId);   // 通常モード
       // runPatternStepの中でcheckStop()しているので、指を離せば次回ループでmanualId=0になり止まる
     }
   }
