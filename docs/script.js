@@ -62,6 +62,7 @@ const det = {
 };
 
 // --- 追跡方式 ---
+let swapFB = false, swapLR = false; // 追尾(Mode2)の前後/左右を入れ替える補正
 let trackMode = 'color';     // 'color'(2色マーカー) または 'aruco'(ArUcoマーカー)
 let arucoDetector = null;    // js-aruco2 の AR.Detector
 let arucoDict = 'ARUCO_MIP_36h12';
@@ -621,7 +622,7 @@ function processLoop() {
 
                     // 4. 指令の決定
                     if (Math.abs(relFront) < TARGET_TOLERANCE && Math.abs(relRight) < TARGET_TOLERANCE) {
-                        commandId = 0; 
+                        commandId = 0;
                     }
                     else if (Math.abs(relFront) > Math.abs(relRight)) {
                         if (relFront > 0) commandId = 1; // 前方
@@ -631,6 +632,10 @@ function processLoop() {
                         if (relRight > 0) commandId = 3; // 右へ
                         else commandId = 4;              // 左へ
                     }
+
+                    // 実機の進む向きが逆のとき用のスワップ補正(前後/左右)
+                    if (swapFB && (commandId === 1 || commandId === 2)) commandId = (commandId === 1) ? 2 : 1;
+                    if (swapLR && (commandId === 3 || commandId === 4)) commandId = (commandId === 3) ? 4 : 3;
 
                     // コマンド送信
                     const now = Date.now();
@@ -1142,6 +1147,8 @@ function setupDetectPanel() {
         arucoTargetId = (e.target.value === '' || isNaN(v)) ? -1 : v;
     };
     document.getElementById('aruco-gen').onclick = generateMarkersForPrint;
+    document.getElementById('swap-fb').onchange = (e) => { swapFB = e.target.checked; };
+    document.getElementById('swap-lr').onchange = (e) => { swapLR = e.target.checked; };
     applyTrackMode();
 
     updateDetectUI();

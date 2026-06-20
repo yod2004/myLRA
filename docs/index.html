@@ -50,6 +50,12 @@
             <span id="aruco-state" style="font-size:0.8rem; color:#aaa;"></span>
         </div>
 
+        <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid #444;">
+            <span style="font-weight:bold; color:#9C27B0;">追尾(Mode2)の向き補正</span>
+            <label><input type="checkbox" id="swap-fb"> 前後を入れ替え</label>
+            <label><input type="checkbox" id="swap-lr"> 左右を入れ替え</label>
+        </div>
+
         <div id="aruco-gen-row" style="display:none; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid #444;">
             <span style="font-weight:bold; color:#FFB300;">印刷用マーカー生成</span>
             <label>ID(カンマ区切り)<input type="text" id="aruco-gen-ids" class="param-input" style="width:90px;" value="0,1"></label>
