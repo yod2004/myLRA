@@ -202,6 +202,7 @@ window.onload = () => {
 
     setupDpad();
     setupParamKeys();
+    setupArrowKeys();
     setMode(3);
     
     waitForOpenCV();
@@ -715,6 +716,46 @@ const PARAM_KEYS = {
     s: ['p-res2', +1, 'Res2'], x: ['p-res2', -1, 'Res2'],
     k: ['p-rep2', +1, 'Rep2'], m: ['p-rep2', -1, 'Rep2'],
 };
+
+// 矢印キーで前後左右に動かす(D-padと同じ向き定義)。押している間だけ動く
+//   ↑=前(1) / ↓=後(2) / →=右(3) / ←=左(4)
+const ARROW_DIRS = { ArrowUp: [1, '前'], ArrowDown: [2, '後'], ArrowRight: [3, '右'], ArrowLeft: [4, '左'] };
+
+function setupArrowKeys() {
+    const pressed = new Set();
+    const header = () => (currentMode === 5 ? HEADER_MANUAL2 : HEADER_MANUAL);
+    const startMove = (dir, name) => {
+        sendManualCommand(dir, header());
+        document.getElementById('status').textContent = `${currentMode === 5 ? '別波形で' : ''}動作中: ${name}`;
+    };
+    const stopMove = () => {
+        sendManualCommand(DIR_STOP, header());
+        document.getElementById('status').textContent = '待機中';
+    };
+
+    document.addEventListener('keydown', (e) => {
+        const a = ARROW_DIRS[e.key];
+        if (!a) return;
+        const tag = (e.target.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+        if (currentMode !== 3 && currentMode !== 5) return; // 動作モード以外は通常スクロール
+        e.preventDefault();
+        if (e.repeat) return;           // オートリピートは無視(押し始めの1回だけ送信)
+        pressed.add(e.key);
+        startMove(a[0], a[1]);
+    });
+
+    document.addEventListener('keyup', (e) => {
+        const a = ARROW_DIRS[e.key];
+        if (!a || !pressed.has(e.key)) return;
+        pressed.delete(e.key);
+        if (pressed.size === 0) stopMove();
+        else { const k = [...pressed].pop(); startMove(ARROW_DIRS[k][0], ARROW_DIRS[k][1]); } // 他の矢印を押し続けていれば継続
+    });
+
+    // ウィンドウからフォーカスが外れたら停止(キーが押しっぱなしのまま固まるのを防ぐ)
+    window.addEventListener('blur', () => { if (pressed.size) { pressed.clear(); stopMove(); } });
+}
 
 function setupParamKeys() {
     const clamp = (v) => Math.max(1, Math.min(255, v));
