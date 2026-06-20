@@ -203,6 +203,7 @@ window.onload = () => {
     setupDpad();
     setupParamKeys();
     setupArrowKeys();
+    setupWaveform();
     setMode(3);
     
     waitForOpenCV();
@@ -717,6 +718,67 @@ const PARAM_KEYS = {
     k: ['p-rep2', +1, 'Rep2'], m: ['p-rep2', -1, 'Rep2'],
 };
 
+// --- 出力波形プレビュー ---
+// ファームの波形生成を忠実に再現して現在のパラメータの波形を描く。
+// 重要: 描画はパラメータ変更時のみ。カメラ/検出ループとは無関係で負荷にならない。
+const wfClampInt = (id) => Math.max(1, Math.min(255, parseInt(document.getElementById(id).value) || 1));
+
+// 幅widthの半波(|sin|)をdir極性で返す。firmwareの halfSine(k,res)=|sin(k*π/res)| と一致
+function wfHump(width, dir) {
+    const pts = [];
+    const w = Math.max(1, width);
+    for (let k = 0; k < w; k++) pts.push(dir * Math.abs(Math.sin((k / w) * Math.PI)));
+    return pts;
+}
+
+// 前後: move(res1,rep1) = 幅res1の山をrep1個(+) → 1個(-)
+function wfFrontBack(res1, rep1) {
+    const pts = [];
+    for (let i = 0; i < rep1; i++) pts.push(...wfHump(res1, +1));
+    pts.push(...wfHump(res1, -1));
+    return pts;
+}
+
+// 左右: move4(res2,rep2) = 幅res2の山(+) → 幅rep2の山(-)
+function wfLeftRight(res2, rep2) {
+    return [...wfHump(res2, +1), ...wfHump(rep2, -1)];
+}
+
+function wfDrawBand(g, x0, y0, w, h, pts, label, color) {
+    const midY = y0 + h / 2, amp = (h / 2) * 0.78;
+    g.strokeStyle = '#555'; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x0, midY); g.lineTo(x0 + w, midY); g.stroke();
+    const n = pts.length;
+    g.strokeStyle = color; g.lineWidth = 1.5;
+    g.beginPath();
+    for (let i = 0; i < n; i++) {
+        const x = x0 + (n <= 1 ? 0 : (i / (n - 1)) * w);
+        const y = midY - pts[i] * amp;
+        i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+    }
+    g.stroke();
+    g.fillStyle = color; g.font = '11px sans-serif';
+    g.fillText(label, x0 + 4, y0 + 12);
+}
+
+function drawWaveform() {
+    const c = document.getElementById('wave-canvas');
+    if (!c) return;
+    const g = c.getContext('2d');
+    g.clearRect(0, 0, c.width, c.height);
+    const r1 = wfClampInt('p-res1'), p1 = wfClampInt('p-rep1');
+    const r2 = wfClampInt('p-res2'), p2 = wfClampInt('p-rep2');
+    const half = c.height / 2;
+    wfDrawBand(g, 0, 0,    c.width, half, wfFrontBack(r1, p1), `前後  Res1=${r1} Rep1=${p1}`, '#4CAF50');
+    wfDrawBand(g, 0, half, c.width, half, wfLeftRight(r2, p2), `左右  Res2=${r2} Rep2=${p2}`, '#00BCD4');
+}
+
+function setupWaveform() {
+    ['p-res1', 'p-rep1', 'p-res2', 'p-rep2'].forEach(id =>
+        document.getElementById(id).addEventListener('input', drawWaveform));
+    drawWaveform();
+}
+
 // 矢印キーで前後左右に動かす(D-padと同じ向き定義)。押している間だけ動く
 //   ↑=前(1) / ↓=後(2) / →=右(3) / ←=左(4)
 const ARROW_DIRS = { ArrowUp: [1, '前'], ArrowDown: [2, '後'], ArrowRight: [3, '右'], ArrowLeft: [4, '左'] };
@@ -773,6 +835,7 @@ function setupParamKeys() {
         const el = document.getElementById(id);
         const v = clamp((parseInt(el.value) || 0) + delta);
         el.value = v;
+        drawWaveform(); // パラメータ変更時のみ再描画(描画負荷は無視できる)
 
         // 接続中なら4パラメータをまとめてファームへ即送信(変更が即反映される)
         if (bleCharacteristic) {
