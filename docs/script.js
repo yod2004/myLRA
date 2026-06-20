@@ -459,6 +459,42 @@ function markerHeadingRad(m) {
     const top = { x: (m.corners[0].x + m.corners[1].x) / 2, y: (m.corners[0].y + m.corners[1].y) / 2 };
     return Math.atan2(top.y - c.y, top.x - c.x);
 }
+// 印刷用にマーカーを生成して別ウィンドウで開く(検出と同じ辞書なので確実に一致)
+function generateMarkersForPrint() {
+    if (typeof AR === 'undefined' || !AR.Dictionary) { alert('ArUcoライブラリが読み込まれていません(ネット接続を確認)'); return; }
+    const dict = new AR.Dictionary(arucoDict);
+    const ids = document.getElementById('aruco-gen-ids').value.split(',')
+        .map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+    if (ids.length === 0) { alert('IDをカンマ区切りで入力してください(例: 0,1)'); return; }
+    const sizeMM = Math.max(10, parseInt(document.getElementById('aruco-gen-size').value) || 40);
+
+    let body = '';
+    for (const id of ids) {
+        let svg;
+        try { svg = dict.generateSVG(id); } catch (e) { continue; }
+        body += `<div class="mk"><div class="svgbox" style="width:${sizeMM}mm;height:${sizeMM}mm">${svg}</div>`
+              + `<div class="lbl">ID: ${id} &nbsp; (${arucoDict})</div></div>`;
+    }
+    if (!body) { alert('有効なマーカーを生成できませんでした(IDが辞書の範囲外かも)'); return; }
+
+    const win = window.open('', '_blank');
+    win.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>ArUco markers</title>
+      <style>
+        body{font-family:sans-serif;margin:10mm;color:#000;}
+        .note{font-size:10pt;color:#444;margin-bottom:8mm;}
+        .mk{display:inline-block;text-align:center;margin:6mm;vertical-align:top;}
+        .svgbox{padding:8mm;background:#fff;border:1px solid #ccc;box-sizing:content-box;}
+        .svgbox svg{width:100%;height:100%;display:block;}
+        .lbl{margin-top:3mm;font-size:11pt;}
+        @media print{ .svgbox{border:none;} .note{display:none;} }
+      </style></head><body>
+      <div class="note">辞書 ${arucoDict} / 1辺 ${sizeMM}mm。周りの白い余白(quiet zone)は切り取らずに残してください。機体に貼るときはマーカーの上辺を前方に向けます。印刷ダイアログで「実際のサイズ/100%」を選ぶと寸法が正確です。</div>
+      ${body}
+      <scr` + `ipt>window.onload=()=>setTimeout(()=>window.print(),300);</scr` + `ipt>
+      </body></html>`);
+    win.document.close();
+}
+
 function pickMarker(markers) {
     if (!markers || markers.length === 0) return null;
     if (arucoTargetId >= 0) return markers.find(m => m.id === arucoTargetId) || null;
@@ -1092,6 +1128,7 @@ function setupDetectPanel() {
         const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
         show('color-controls', !aruco); show('color-options', !aruco); show('color-help', !aruco);
         show('aruco-opts', aruco); show('aruco-id-opt', aruco); show('aruco-help', aruco);
+        document.getElementById('aruco-gen-row').style.display = aruco ? 'flex' : 'none';
         const stateEl = document.getElementById('aruco-state');
         if (aruco) {
             if (!arucoDetector) initAruco();
@@ -1104,6 +1141,7 @@ function setupDetectPanel() {
         const v = parseInt(e.target.value);
         arucoTargetId = (e.target.value === '' || isNaN(v)) ? -1 : v;
     };
+    document.getElementById('aruco-gen').onclick = generateMarkersForPrint;
     applyTrackMode();
 
     updateDetectUI();

@@ -50,6 +50,13 @@
             <span id="aruco-state" style="font-size:0.8rem; color:#aaa;"></span>
         </div>
 
+        <div id="aruco-gen-row" style="display:none; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid #444;">
+            <span style="font-weight:bold; color:#FFB300;">印刷用マーカー生成</span>
+            <label>ID(カンマ区切り)<input type="text" id="aruco-gen-ids" class="param-input" style="width:90px;" value="0,1"></label>
+            <label>サイズ<input type="number" id="aruco-gen-size" class="param-input" style="width:56px;" value="40">mm</label>
+            <button id="aruco-gen" class="btn-sys" style="background:#FFB300; color:#000; padding:6px 12px; margin:0;">🖨️ 生成して印刷</button>
+        </div>
+
         <p id="color-help" style="font-size:0.8rem; color:#bbb; margin:4px 0;">「色を取得」を押してから映像内のマーカーをクリックすると、その色に自動調整します。スライダーで微調整も可能。「マスク表示」で検出範囲を確認できます。</p>
 
         <div id="color-controls" style="display:flex; gap:12px; flex-wrap:wrap;">
