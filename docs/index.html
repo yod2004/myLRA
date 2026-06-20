@@ -29,10 +29,43 @@
     </div>
 
     <div id="detect-area" style="display:none; background:#2a2a2a; padding:12px; border-radius:8px; margin-top:10px; text-align:left;">
-        <div style="font-weight:bold; margin-bottom:6px; color:#90A4AE;">検出設定 (色キャリブレーション)</div>
-        <p style="font-size:0.8rem; color:#bbb; margin:4px 0;">「色を取得」を押してから映像内のマーカーをクリックすると、その色に自動調整します。スライダーで微調整も可能。「マスク表示」で検出範囲を確認できます。</p>
+        <div style="font-weight:bold; margin-bottom:6px; color:#90A4AE;">検出設定</div>
 
-        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid #444;">
+            <label style="font-weight:bold;">追跡方式
+                <select id="track-mode" class="param-input" style="width:auto;">
+                    <option value="color">2色マーカー</option>
+                    <option value="aruco">ArUcoマーカー</option>
+                </select>
+            </label>
+            <label id="aruco-opts" style="display:none;">辞書
+                <select id="aruco-dict" class="param-input" style="width:auto;">
+                    <option value="ARUCO_MIP_36h12">ARUCO_MIP_36h12 (推奨)</option>
+                    <option value="ARUCO">ARUCO (古典)</option>
+                </select>
+            </label>
+            <label id="aruco-id-opt" style="display:none;">追跡ID(空=最初)
+                <input type="number" id="aruco-id" class="param-input" style="width:60px;" placeholder="-1">
+            </label>
+            <span id="aruco-state" style="font-size:0.8rem; color:#aaa;"></span>
+        </div>
+
+        <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid #444;">
+            <span style="font-weight:bold; color:#9C27B0;">追尾(Mode2)の向き補正</span>
+            <label><input type="checkbox" id="swap-fb"> 前後を入れ替え</label>
+            <label><input type="checkbox" id="swap-lr"> 左右を入れ替え</label>
+        </div>
+
+        <div id="aruco-gen-row" style="display:none; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid #444;">
+            <span style="font-weight:bold; color:#FFB300;">印刷用マーカー生成</span>
+            <label>ID(カンマ区切り)<input type="text" id="aruco-gen-ids" class="param-input" style="width:90px;" value="0,1"></label>
+            <label>サイズ<input type="number" id="aruco-gen-size" class="param-input" style="width:56px;" value="40">mm</label>
+            <button id="aruco-gen" class="btn-sys" style="background:#FFB300; color:#000; padding:6px 12px; margin:0;">🖨️ 生成して印刷</button>
+        </div>
+
+        <p id="color-help" style="font-size:0.8rem; color:#bbb; margin:4px 0;">「色を取得」を押してから映像内のマーカーをクリックすると、その色に自動調整します。スライダーで微調整も可能。「マスク表示」で検出範囲を確認できます。</p>
+
+        <div id="color-controls" style="display:flex; gap:12px; flex-wrap:wrap;">
             <div class="detect-col">
                 <div style="font-weight:bold; color:#FFD54F;">中心マーカー (黄)</div>
                 <button id="c-sample" class="sample-btn btn-sys" style="background:#FBC02D; color:#000; padding:6px 10px;">🖱️ 色を取得</button>
@@ -51,7 +84,7 @@
             </div>
         </div>
 
-        <div style="margin-top:10px; display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
+        <div id="color-options" style="margin-top:10px; display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
             <label>検出解像度
                 <select id="d-scale" class="param-input" style="width:auto;">
                     <option value="0.5">1/2 (高速)</option>
@@ -63,6 +96,8 @@
             <label><input type="checkbox" id="d-morph" checked> ノイズ除去</label>
             <label><input type="checkbox" id="d-mask"> マスク表示</label>
         </div>
+
+        <p id="aruco-help" style="display:none; font-size:0.8rem; color:#bbb; margin:4px 0;">機体にArUcoマーカーを貼ると、1枚で位置と向き(360°)を頑健に検出します。マーカーのIDで2台を判別でき、照明にも強いです。マーカーは選んだ辞書で印刷してください。「追跡ID」を指定するとそのIDだけを追います(空欄なら最初に見つかったもの)。</p>
     </div>
 
     <div id="memo-area" style="display:none; background:#2b2522; padding:12px; border-radius:8px; margin-top:10px; text-align:left; max-width:560px; margin-left:auto; margin-right:auto;">
@@ -205,6 +240,9 @@
     </div>
 
     <script async src="opencv.js"></script>
+    <!-- ArUcoマーカー検出 (js-aruco2)。cv.js → aruco.js の順。OpenCVのwindow.cvとは別(window.CV/AR) -->
+    <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

@@ -60,6 +60,14 @@ const det = {
     center: { hue: 30, hueW: 12, sMin: 80, vMin: 80 }, // 中心マーカー(黄)
     front:  { hue: 0,  hueW: 14, sMin: 90, vMin: 70 }, // 前方マーカー(赤/オレンジ)
 };
+
+// --- 追跡方式 ---
+let swapFB = false, swapLR = false; // 追尾(Mode2)の前後/左右を入れ替える補正
+let trackMode = 'color';     // 'color'(2色マーカー) または 'aruco'(ArUcoマーカー)
+let arucoDetector = null;    // js-aruco2 の AR.Detector
+let arucoDict = 'ARUCO_MIP_36h12';
+let arucoTargetId = -1;      // 追跡するマーカーID(-1=最初に見つかったもの)
+
 let detectScale = 0.5;   // 色検出の解像度倍率(小さいマーカーは0.75/1.0で拾いやすい)
 let minAreaFull = 20;    // フル解像度基準の最小ブロブ面積[px^2]
 let useMorphology = true; // ノイズ除去・穴埋め(開閉処理)
@@ -434,6 +442,76 @@ function drawArrow(x1, y1, x2, y2, color) {
     ctx.stroke();
 }
 
+// --- ArUcoマーカー検出(js-aruco2) ---
+function initAruco() {
+    if (typeof AR === 'undefined' || !AR.Detector) return false;
+    try { arucoDetector = new AR.Detector({ dictionaryName: arucoDict }); return true; }
+    catch (e) { arucoDetector = null; return false; }
+}
+
+function markerCenter(m) {
+    let x = 0, y = 0;
+    for (const c of m.corners) { x += c.x; y += c.y; }
+    return { x: x / 4, y: y / 4 };
+}
+// マーカーの「上辺(corner0→corner1)」が向く方向を機体の向きとする[rad]
+function markerHeadingRad(m) {
+    const c = markerCenter(m);
+    const top = { x: (m.corners[0].x + m.corners[1].x) / 2, y: (m.corners[0].y + m.corners[1].y) / 2 };
+    return Math.atan2(top.y - c.y, top.x - c.x);
+}
+// 印刷用にマーカーを生成して別ウィンドウで開く(検出と同じ辞書なので確実に一致)
+function generateMarkersForPrint() {
+    if (typeof AR === 'undefined' || !AR.Dictionary) { alert('ArUcoライブラリが読み込まれていません(ネット接続を確認)'); return; }
+    const dict = new AR.Dictionary(arucoDict);
+    const ids = document.getElementById('aruco-gen-ids').value.split(',')
+        .map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+    if (ids.length === 0) { alert('IDをカンマ区切りで入力してください(例: 0,1)'); return; }
+    const sizeMM = Math.max(10, parseInt(document.getElementById('aruco-gen-size').value) || 40);
+
+    let body = '';
+    for (const id of ids) {
+        let svg;
+        try { svg = dict.generateSVG(id); } catch (e) { continue; }
+        body += `<div class="mk"><div class="svgbox" style="width:${sizeMM}mm;height:${sizeMM}mm">${svg}</div>`
+              + `<div class="lbl">ID: ${id} &nbsp; (${arucoDict})</div></div>`;
+    }
+    if (!body) { alert('有効なマーカーを生成できませんでした(IDが辞書の範囲外かも)'); return; }
+
+    const win = window.open('', '_blank');
+    win.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>ArUco markers</title>
+      <style>
+        body{font-family:sans-serif;margin:10mm;color:#000;}
+        .note{font-size:10pt;color:#444;margin-bottom:8mm;}
+        .mk{display:inline-block;text-align:center;margin:6mm;vertical-align:top;}
+        .svgbox{padding:8mm;background:#fff;border:1px solid #ccc;box-sizing:content-box;}
+        .svgbox svg{width:100%;height:100%;display:block;}
+        .lbl{margin-top:3mm;font-size:11pt;}
+        @media print{ .svgbox{border:none;} .note{display:none;} }
+      </style></head><body>
+      <div class="note">辞書 ${arucoDict} / 1辺 ${sizeMM}mm。周りの白い余白(quiet zone)は切り取らずに残してください。機体に貼るときはマーカーの上辺を前方に向けます。印刷ダイアログで「実際のサイズ/100%」を選ぶと寸法が正確です。</div>
+      ${body}
+      <scr` + `ipt>window.onload=()=>setTimeout(()=>window.print(),300);</scr` + `ipt>
+      </body></html>`);
+    win.document.close();
+}
+
+function pickMarker(markers) {
+    if (!markers || markers.length === 0) return null;
+    if (arucoTargetId >= 0) return markers.find(m => m.id === arucoTargetId) || null;
+    return markers[0];
+}
+function drawMarkerOutline(m, primary) {
+    const col = primary ? 'rgb(0,255,0)' : 'rgba(120,120,120,0.8)';
+    ctx.strokeStyle = col; ctx.lineWidth = 2;
+    ctx.beginPath();
+    m.corners.forEach((c, i) => i === 0 ? ctx.moveTo(c.x, c.y) : ctx.lineTo(c.x, c.y));
+    ctx.closePath(); ctx.stroke();
+    const ctr = markerCenter(m);
+    ctx.fillStyle = col; ctx.font = 'bold 14px sans-serif';
+    ctx.fillText('ID:' + m.id, ctr.x + 8, ctr.y - 8);
+}
+
 function processLoop() {
     try {
         if (!cv) { scheduleNext(); return; }
@@ -455,23 +533,40 @@ function processLoop() {
         // 表示用はフル解像度で直接描画(OpenCVにフル画像は渡さない)
         ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
 
-        // 色検出は縮小画像に対して行う
-        const sw = Math.round(canvas.width * detectScale);
-        const sh = Math.round(canvas.height * detectScale);
-        if (detectCanvas.width !== sw || detectCanvas.height !== sh) {
-            detectCanvas.width = sw; detectCanvas.height = sh;
+        let centerPos = null, frontPos = null;
+
+        if (trackMode === 'aruco' && arucoDetector) {
+            // ArUco: フル解像度の画像から検出。1枚で位置と向きが取れる
+            const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const markers = arucoDetector.detect(img);
+            const m = pickMarker(markers);
+            // 候補を薄く、追跡対象を緑で描画
+            markers.forEach(mk => { if (mk !== m) drawMarkerOutline(mk, false); });
+            if (m) {
+                drawMarkerOutline(m, true);
+                centerPos = markerCenter(m);
+                const rad = markerHeadingRad(m);
+                // 既存の下流処理(向きはcenter→frontから算出)を再利用するため前方点を合成
+                frontPos = { x: centerPos.x + 30 * Math.cos(rad), y: centerPos.y + 30 * Math.sin(rad) };
+            }
+        } else {
+            // 2色マーカー: 縮小画像で色検出
+            const sw = Math.round(canvas.width * detectScale);
+            const sh = Math.round(canvas.height * detectScale);
+            if (detectCanvas.width !== sw || detectCanvas.height !== sh) {
+                detectCanvas.width = sw; detectCanvas.height = sh;
+            }
+            detectCtx.drawImage(videoElement, 0, 0, sw, sh);
+            ensureMats(sw, sh);
+            mats.src.data.set(detectCtx.getImageData(0, 0, sw, sh).data);
+            cv.cvtColor(mats.src, mats.rgb, cv.COLOR_RGBA2RGB);
+            cv.cvtColor(mats.rgb, mats.hsv, cv.COLOR_RGB2HSV);
+
+            centerPos = findColor(mats.hsv, mats.colorRanges.center, mats.maskCenter);
+            // 前方は中心色(黄)を除外して探す → レンジが被っても中心を誤検出しない
+            frontPos = findColor(mats.hsv, mats.colorRanges.front, mats.maskFront, mats.maskCenter);
+            if (showMask) drawMaskOverlay();
         }
-        detectCtx.drawImage(videoElement, 0, 0, sw, sh);
-        ensureMats(sw, sh);
-        mats.src.data.set(detectCtx.getImageData(0, 0, sw, sh).data);
-        cv.cvtColor(mats.src, mats.rgb, cv.COLOR_RGBA2RGB);
-        cv.cvtColor(mats.rgb, mats.hsv, cv.COLOR_RGB2HSV);
-
-        let centerPos = findColor(mats.hsv, mats.colorRanges.center, mats.maskCenter);
-        // 前方は中心色(黄)を除外して探す → レンジが被っても中心を誤検出しない
-        let frontPos = findColor(mats.hsv, mats.colorRanges.front, mats.maskFront, mats.maskCenter);
-
-        if (showMask) drawMaskOverlay();
 
         let hasAngle = false;
 
@@ -527,7 +622,7 @@ function processLoop() {
 
                     // 4. 指令の決定
                     if (Math.abs(relFront) < TARGET_TOLERANCE && Math.abs(relRight) < TARGET_TOLERANCE) {
-                        commandId = 0; 
+                        commandId = 0;
                     }
                     else if (Math.abs(relFront) > Math.abs(relRight)) {
                         if (relFront > 0) commandId = 1; // 前方
@@ -537,6 +632,10 @@ function processLoop() {
                         if (relRight > 0) commandId = 3; // 右へ
                         else commandId = 4;              // 左へ
                     }
+
+                    // 実機の進む向きが逆のとき用のスワップ補正(前後/左右)
+                    if (swapFB && (commandId === 1 || commandId === 2)) commandId = (commandId === 1) ? 2 : 1;
+                    if (swapLR && (commandId === 3 || commandId === 4)) commandId = (commandId === 3) ? 4 : 3;
 
                     // コマンド送信
                     const now = Date.now();
@@ -1027,6 +1126,31 @@ function setupDetectPanel() {
     };
     document.getElementById('d-morph').onchange = (e) => { useMorphology = e.target.checked; };
     document.getElementById('d-mask').onchange = (e) => { showMask = e.target.checked; };
+
+    // --- 追跡方式(色 / ArUco)の切り替え ---
+    const applyTrackMode = () => {
+        const aruco = (trackMode === 'aruco');
+        const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
+        show('color-controls', !aruco); show('color-options', !aruco); show('color-help', !aruco);
+        show('aruco-opts', aruco); show('aruco-id-opt', aruco); show('aruco-help', aruco);
+        document.getElementById('aruco-gen-row').style.display = aruco ? 'flex' : 'none';
+        const stateEl = document.getElementById('aruco-state');
+        if (aruco) {
+            if (!arucoDetector) initAruco();
+            stateEl.textContent = arucoDetector ? `辞書: ${arucoDict}` : 'ArUcoライブラリ未読み込み(ネット接続を確認)';
+        } else { stateEl.textContent = ''; }
+    };
+    document.getElementById('track-mode').onchange = (e) => { trackMode = e.target.value; applyTrackMode(); };
+    document.getElementById('aruco-dict').onchange = (e) => { arucoDict = e.target.value; initAruco(); applyTrackMode(); };
+    document.getElementById('aruco-id').oninput = (e) => {
+        const v = parseInt(e.target.value);
+        arucoTargetId = (e.target.value === '' || isNaN(v)) ? -1 : v;
+    };
+    document.getElementById('aruco-gen').onclick = generateMarkersForPrint;
+    document.getElementById('swap-fb').onchange = (e) => { swapFB = e.target.checked; };
+    document.getElementById('swap-lr').onchange = (e) => { swapLR = e.target.checked; };
+    applyTrackMode();
+
     updateDetectUI();
 }
 
