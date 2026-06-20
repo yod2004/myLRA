@@ -207,6 +207,7 @@ window.onload = () => {
     setupArrowKeys();
     setupWaveform();
     setupDirConfig();
+    setupMemo();
     setMode(3);
     
     waitForOpenCV();
@@ -810,6 +811,108 @@ function setupDirConfig() {
         st.textContent = bleCharacteristic ? '個別設定を全送信しました' : '未接続: 送信できません';
         st.style.color = bleCharacteristic ? '#4CAF50' : 'red';
     };
+}
+
+// --- メモ機能(.mdファイルの読み書き、表示/非表示トグル) ---
+// File System Access API(Chrome)で実ファイルを開いて保存。ハンドルはIndexedDBに
+// 記憶して次回も自動で開く。非対応環境はfetch読み込み + ダウンロード保存にフォールバック。
+let memoHandle = null, memoLoaded = false;
+const memoEl = (id) => document.getElementById(id);
+const memoSetText = (t) => { memoEl('memo-text').value = t; };
+const memoFileLabel = (s) => { memoEl('memo-file').textContent = s; };
+const memoStatus = (s) => { memoEl('memo-status').textContent = s; };
+
+function memoIdb(cb) {
+    const req = indexedDB.open('myLRAmemo', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('h');
+    req.onsuccess = () => cb(req.result);
+    req.onerror = () => cb(null);
+}
+function memoSaveHandle(h) { memoIdb(db => { if (db) db.transaction('h', 'readwrite').objectStore('h').put(h, 'file'); }); }
+function memoLoadHandle() {
+    return new Promise(res => memoIdb(db => {
+        if (!db) return res(null);
+        const r = db.transaction('h').objectStore('h').get('file');
+        r.onsuccess = () => res(r.result || null); r.onerror = () => res(null);
+    }));
+}
+async function memoEnsurePerm(handle, write) {
+    const opts = { mode: write ? 'readwrite' : 'read' };
+    if ((await handle.queryPermission(opts)) === 'granted') return true;
+    return (await handle.requestPermission(opts)) === 'granted';
+}
+
+async function memoOpen() {
+    if (!('showOpenFilePicker' in window)) {
+        try {
+            const t = await (await fetch('notes.md?v=' + Date.now())).text();
+            memoSetText(t); memoFileLabel('notes.md (読み取り)');
+            memoStatus('この環境ではファイル書き込み非対応。保存はダウンロードになります');
+        } catch (e) { memoStatus('notes.md を読み込めませんでした'); }
+        return;
+    }
+    try {
+        const [h] = await window.showOpenFilePicker({
+            types: [{ description: 'Markdown / テキスト', accept: { 'text/markdown': ['.md', '.markdown', '.txt'] } }],
+        });
+        memoHandle = h; memoSaveHandle(h);
+        memoSetText(await (await h.getFile()).text());
+        memoFileLabel(h.name); memoStatus('読み込みました');
+    } catch (e) { if (e.name !== 'AbortError') memoStatus('開けませんでした: ' + e.message); }
+}
+
+async function memoSave() {
+    const text = memoEl('memo-text').value;
+    if (memoHandle && 'createWritable' in memoHandle) {
+        if (!(await memoEnsurePerm(memoHandle, true))) { memoStatus('書き込み許可がありません'); return; }
+        const w = await memoHandle.createWritable();
+        await w.write(text); await w.close();
+        memoStatus(`保存しました: ${memoHandle.name} (${new Date().toLocaleTimeString()})`);
+    } else {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([text], { type: 'text/markdown' }));
+        a.download = 'notes.md'; a.click();
+        memoStatus('ダウンロードしました(notes.md)');
+    }
+}
+
+function memoAppend() {
+    const ta = memoEl('memo-text');
+    const n = new Date(), z = (v) => String(v).padStart(2, '0');
+    const stamp = `## ${n.getFullYear()}-${z(n.getMonth() + 1)}-${z(n.getDate())} ${z(n.getHours())}:${z(n.getMinutes())}\n`;
+    ta.value = ta.value.replace(/\s*$/, '') + '\n\n' + stamp;
+    ta.focus(); ta.selectionStart = ta.selectionEnd = ta.value.length; ta.scrollTop = ta.scrollHeight;
+    if (memoHandle) memoSave(); else memoStatus('追記しました(「保存」で書き込み)');
+}
+
+async function memoTryRestore() {
+    if ('showOpenFilePicker' in window) {
+        const h = await memoLoadHandle();
+        if (h && await memoEnsurePerm(h, false)) {
+            try {
+                memoHandle = h; memoSetText(await (await h.getFile()).text());
+                memoFileLabel(h.name); memoStatus('前回のファイルを開きました');
+                return;
+            } catch (e) { /* 失敗時は下のfetchへ */ }
+        }
+    }
+    try {
+        const t = await (await fetch('notes.md?v=' + Date.now())).text();
+        memoSetText(t); memoFileLabel('notes.md (未紐付け)');
+        memoStatus('「ファイルを開く」で notes.md を選ぶと書き込めます');
+    } catch (e) { memoStatus('メモを書いて「保存」できます'); }
+}
+
+function setupMemo() {
+    memoEl('memoToggle').onclick = async () => {
+        const a = memoEl('memo-area');
+        const show = (a.style.display === 'none' || !a.style.display);
+        a.style.display = show ? 'block' : 'none';
+        if (show && !memoLoaded) { memoLoaded = true; await memoTryRestore(); }
+    };
+    memoEl('memo-open').onclick = memoOpen;
+    memoEl('memo-save').onclick = memoSave;
+    memoEl('memo-append').onclick = memoAppend;
 }
 
 // 矢印キーで前後左右に動かす(D-padと同じ向き定義)。押している間だけ動く

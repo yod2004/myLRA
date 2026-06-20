@@ -20,6 +20,7 @@
         <button id="connectButton" class="btn-sys" style="background-color: #007bff;">① Bluetooth 接続</button>
         <button id="cameraButton" class="btn-sys">② カメラ起動 (Webcam)</button>
         <button id="detectToggle" class="btn-sys" style="background-color: #607D8B;">🎯 検出設定</button>
+        <button id="memoToggle" class="btn-sys" style="background-color: #795548;">📝 メモ</button>
 
         <span style="display: inline-block; margin-left: 15px; background: #333; padding: 5px 10px; border-radius: 6px; border: 1px solid #555;">
             <button id="btn-voltage" class="btn-sys" style="background-color: #9C27B0; padding: 8px 15px; margin: 0;">⚡ 電圧確認</button>
@@ -62,6 +63,18 @@
             <label><input type="checkbox" id="d-morph" checked> ノイズ除去</label>
             <label><input type="checkbox" id="d-mask"> マスク表示</label>
         </div>
+    </div>
+
+    <div id="memo-area" style="display:none; background:#2b2522; padding:12px; border-radius:8px; margin-top:10px; text-align:left; max-width:560px; margin-left:auto; margin-right:auto;">
+        <div style="font-weight:bold; margin-bottom:6px; color:#BCAAA4;">メモ (.md)</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:6px;">
+            <button id="memo-open" class="btn-sys" style="background:#795548; padding:6px 12px; margin:0;">📂 ファイルを開く</button>
+            <button id="memo-save" class="btn-sys" style="background:#4CAF50; padding:6px 12px; margin:0;">💾 保存</button>
+            <button id="memo-append" class="btn-sys" style="background:#FF9800; padding:6px 12px; margin:0;">＋ 日時付きで追記</button>
+            <span id="memo-file" style="font-size:0.8rem; color:#aaa;">未読み込み</span>
+        </div>
+        <textarea id="memo-text" spellcheck="false" placeholder="ここにメモ… 「ファイルを開く」で notes.md を選ぶと読み書きできます" style="width:100%; height:200px; box-sizing:border-box; background:#1a1a1a; color:#eee; border:1px solid #555; border-radius:6px; padding:8px; font-family:monospace; font-size:0.9rem; resize:vertical;"></textarea>
+        <div id="memo-status" style="font-size:0.8rem; color:#9E9E9E; margin-top:4px;"></div>
     </div>
 
     <div class="mode-tabs">
