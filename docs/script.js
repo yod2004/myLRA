@@ -201,7 +201,8 @@ window.onload = () => {
     document.getElementById('clearBtn').onclick = () => { recordedData=[]; updateLogCount(); };
 
     setupDpad();
-    setMode(3); 
+    setupParamKeys();
+    setMode(3);
     
     waitForOpenCV();
     scheduleNext();
@@ -701,6 +702,51 @@ function setupDpad() {
         };
         ['mousedown','touchstart'].forEach(ev=>btn.addEventListener(ev, press, {passive:false}));
         ['mouseup','mouseleave','touchend'].forEach(ev=>btn.addEventListener(ev, release));
+    });
+}
+
+// パラメータをキーボードで±1調整するショートカット
+//   Res1: q(+) / a(-)   Rep1: p(+) / l(-)
+//   Res2: s(+) / x(-)   Rep2: k(+) / m(-)
+// [入力欄ID, 増減, ラベル]
+const PARAM_KEYS = {
+    q: ['p-res1', +1, 'Res1'], a: ['p-res1', -1, 'Res1'],
+    p: ['p-rep1', +1, 'Rep1'], l: ['p-rep1', -1, 'Rep1'],
+    s: ['p-res2', +1, 'Res2'], x: ['p-res2', -1, 'Res2'],
+    k: ['p-rep2', +1, 'Rep2'], m: ['p-rep2', -1, 'Rep2'],
+};
+
+function setupParamKeys() {
+    const clamp = (v) => Math.max(1, Math.min(255, v));
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        // 入力欄・選択欄にフォーカス中はキー入力を奪わない
+        const tag = (e.target.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+        const map = PARAM_KEYS[e.key.toLowerCase()];
+        if (!map) return;
+        e.preventDefault();
+
+        const [id, delta, label] = map;
+        const el = document.getElementById(id);
+        const v = clamp((parseInt(el.value) || 0) + delta);
+        el.value = v;
+
+        // 接続中なら4パラメータをまとめてファームへ即送信(変更が即反映される)
+        if (bleCharacteristic) {
+            try {
+                bleWrite(new Uint8Array([HEADER_PARAM,
+                    clamp(parseInt(document.getElementById('p-res1').value) || 1),
+                    clamp(parseInt(document.getElementById('p-rep1').value) || 1),
+                    clamp(parseInt(document.getElementById('p-res2').value) || 1),
+                    clamp(parseInt(document.getElementById('p-rep2').value) || 1)]));
+            } catch (err) {}
+        }
+
+        const st = document.getElementById('status');
+        st.textContent = `${label} = ${v}${bleCharacteristic ? '' : '  (未接続: 値のみ更新)'}`;
+        st.style.color = '#FF9800';
     });
 }
 
