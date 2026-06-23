@@ -184,30 +184,15 @@ window.onload = () => {
     document.getElementById('cameraButton').onclick = startWebcam;
     document.getElementById('connectButton').onclick = connectBluetooth;
     document.getElementById('btn-update').onclick = sendParamUpdate;
-    document.getElementById('btn-voltage').onclick = requestVoltage;
-    
-    [1,2,3,4,5,6,7].forEach(m => document.getElementById(`mode${m}Btn`).onclick = () => setMode(m));
 
-    document.getElementById('t-start').onclick = startAutoTune;
-    document.getElementById('t-abort').onclick = () => { tuneAbort = true; };
-    document.getElementById('t-save').onclick = saveTuneCSV;
+    // 当日用: Mode 3(動作確認) と Mode 2(自動追尾)のみ
+    [2,3].forEach(m => document.getElementById(`mode${m}Btn`).onclick = () => setMode(m));
 
     setupDetectPanel();
-
-    const videoInput = document.getElementById('videoInput');
-    videoInput.addEventListener('change', handleFileSelect, false);
-    
-    document.getElementById('v-play').onclick = () => videoElement.paused ? videoElement.play() : videoElement.pause();
-    document.getElementById('v-reset').onclick = () => { videoElement.currentTime = 0; videoElement.pause(); recordedData=[]; updateLogCount(); };
-    document.getElementById('saveBtn').onclick = saveCSV;
-    document.getElementById('clearBtn').onclick = () => { recordedData=[]; updateLogCount(); };
-
     setupDpad();
     setupParamKeys();
     setupArrowKeys();
     setupWaveform();
-    setupDirConfig();
-    setupMemo();
     setMode(3);
     
     waitForOpenCV();
@@ -250,35 +235,24 @@ function handleFileSelect(event) {
 }
 
 function setMode(mode) {
-    if (isTuning && mode !== 6) tuneAbort = true; // チューニング中にモードを離れたら中止
-
     currentMode = mode;
     document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
     document.getElementById(`mode${mode}Btn`).classList.add('active');
 
     const dpad = document.getElementById('dpad-area');
-    const saveArea = document.getElementById('save-area');
     const paramArea = document.getElementById('param-area');
-    const fileContainer = document.getElementById('file-input-container');
-    const tuneArea = document.getElementById('tune-area');
-    const dirCfgArea = document.getElementById('dir-config-area');
     const status = document.getElementById('status');
     const canvasEl = document.getElementById('canvas');
 
-    dpad.classList.remove('mode1-active', 'mode3-active', 'mode5-active', 'mode7-active');
-    fileContainer.style.display = (mode === 4) ? "block" : "none";
-    paramArea.style.display = (mode === 4 || mode === 6 || mode === 7) ? "none" : "block";
-    tuneArea.style.display = (mode === 6) ? "block" : "none";
-    dirCfgArea.style.display = (mode === 7) ? "block" : "none";
+    dpad.classList.remove('mode3-active');
+    paramArea.style.display = "block"; // Mode2/3とも調整可能
 
     let color = "#fff";
-    if (mode === 3) { status.textContent="Mode 3: 動作確認"; color="#4CAF50"; dpad.style.display="block"; dpad.classList.add('mode3-active'); saveArea.style.display="none"; }
-    else if (mode === 5) { status.textContent="Mode 5: 別波形動作"; color="#00BCD4"; dpad.style.display="block"; dpad.classList.add('mode5-active'); saveArea.style.display="none"; }
-    else if (mode === 7) { status.textContent="Mode 7: 個別設定"; color="#FFB300"; dpad.style.display="block"; dpad.classList.add('mode7-active'); saveArea.style.display="none"; }
-    else if (mode === 1) { status.textContent="Mode 1: 3秒記録"; color="#2196F3"; dpad.style.display="block"; dpad.classList.add('mode1-active'); saveArea.style.display="block"; }
-    else if (mode === 2) { status.textContent="Mode 2: 自動追尾"; color="#9C27B0"; dpad.style.display="none"; saveArea.style.display="none"; }
-    else if (mode === 4) { status.textContent="Mode 4: 動画解析"; color="#FF5722"; dpad.style.display="none"; saveArea.style.display="block"; }
-    else if (mode === 6) { status.textContent="Mode 6: 自動チューニング"; color="#E91E63"; dpad.style.display="none"; saveArea.style.display="none"; }
+    if (mode === 2) { status.textContent = "Mode 2: 自動追尾"; color = "#9C27B0"; dpad.style.display = "none"; }
+    else { // Mode 3: 動作確認
+        status.textContent = "Mode 3: 動作確認"; color = "#4CAF50";
+        dpad.style.display = "block"; dpad.classList.add('mode3-active');
+    }
 
     status.style.color = color;
     canvasEl.style.borderColor = color;

@@ -53,11 +53,11 @@ uint8_t dirP1[5]    = {0, 19, 19, 30, 30};
 uint8_t dirP2[5]    = {0, 3, 3, 5, 5};
 
 // --- パラメータ変数 ---
-// 初期値を設定
-int paramRes1 = 19;
-int paramRep1 = 3;
-int paramRes2 = 30;
-int paramRep2 = 5;
+// 当日用デフォルト
+int paramRes1 = 10;
+int paramRep1 = 4;
+int paramRes2 = 35;
+int paramRep2 = 2;
 int loopCount = 200;
 int normX = 0;
 int normY = 0;
@@ -280,9 +280,9 @@ void runPatternStep(int id) {
   digitalWrite(D6, LOW); digitalWrite(D8, LOW); digitalWrite(D7, LOW); digitalWrite(D10, LOW);
   
   switch(id) {
-    // move() や move2() にグローバル変数の paramResX, paramRepX を渡すようにしています
-    case 1: digitalWrite(D6, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, false);  break;
-    case 2: digitalWrite(D8, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, true); break;
+    // 当日用: 前後(case1/2)の励起極性を入れ替え(前=true, 後=false)
+    case 1: digitalWrite(D6, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, true);  break;
+    case 2: digitalWrite(D8, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, false); break;
     case 3: digitalWrite(D7, HIGH);  move4(paramRes2, paramRep2, true);  break;
     case 4: digitalWrite(D10, HIGH); move4(paramRes2, paramRep2, false); break;
   }
@@ -294,9 +294,9 @@ void runPatternStep2(int id) {
   digitalWrite(D6, LOW); digitalWrite(D8, LOW); digitalWrite(D7, LOW); digitalWrite(D10, LOW);
   
   switch(id) {
-    // move() や move2() にグローバル変数の paramResX, paramRepX を渡すようにしています
-    case 1: digitalWrite(D6, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, false);  break;
-    case 2: digitalWrite(D8, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, true); break;
+    // 当日用: 前後(case1/2)の励起極性を入れ替え(前=true, 後=false)
+    case 1: digitalWrite(D6, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, true);  break;
+    case 2: digitalWrite(D8, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, false); break;
     case 3: digitalWrite(D7, HIGH);  for(uint8_t i=0; i < 10; i++) move4(paramRes2, paramRep2, true); break;
     case 4: digitalWrite(D10, HIGH); for(uint8_t i=0; i < 10; i++) move4(paramRes2, paramRep2, false); break;
   }
