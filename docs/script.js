@@ -22,8 +22,8 @@ const APP_VERSION = "1.2.0";
 // xxxx はシリアルの "BLE name: XIAO_LRA_xxxx" か、接続時のステータス表示で確認できる。
 // (Web BluetoothはMACを直接読めないが、この名前にMAC下位2バイトが入っている)
 const DEVICE_LABELS = {
-    // "XIAO_LRA_3F4A": "A",
-    // "XIAO_LRA_1B2C": "B",
+    "XIAO_LRA_EC24": "BIBIBIBI_GREEN",
+    "XIAO_LRA_A994": "BIBIBIBI_WHITE",
 };
 
 // デバイス名からラベル付きの表示名を返す。未登録ならそのまま名前を返す

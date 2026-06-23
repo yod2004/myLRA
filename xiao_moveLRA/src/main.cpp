@@ -281,8 +281,8 @@ void runPatternStep(int id) {
   
   switch(id) {
     // 当日用: 上下(前後 case1/2)の励起極性(前=false, 後=true)
-    case 1: digitalWrite(D6, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, false);  break;
-    case 2: digitalWrite(D8, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, true); break;
+    case 1: digitalWrite(D6, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, true);  break;
+    case 2: digitalWrite(D8, HIGH);  for(uint8_t i=0; i < 10; i++) move(paramRes1, paramRep1, false); break;
     case 3: digitalWrite(D7, HIGH);  move4(paramRes2, paramRep2, true);  break;
     case 4: digitalWrite(D10, HIGH); move4(paramRes2, paramRep2, false); break;
   }
@@ -416,7 +416,18 @@ void setup() {
   // 個体ごとに固有のBLE名にする(MAC下位2バイト)。2台以上を見分けられるように
   uint64_t mac = ESP.getEfuseMac();
   char devName[24];
-  snprintf(devName, sizeof(devName), "XIAO_LRA_%04X", (uint16_t)(mac & 0xFFFF));
+  switch ((uint16_t)(mac & 0xFFFF)){
+    case 0xEC24:
+      snprintf(devName,sizeof(devName),"BIBIBIBI_GREEN");
+      break;
+    case 0xA994:  
+      snprintf(devName,sizeof(devName),"BIBIBIBI_WHITE");
+      break;
+    default:
+      snprintf(devName,sizeof(devName),"BIBIBIBI_UNKNOWN");
+      break;
+  }
+  // snprintf(devName, sizeof(devName), "XIAO_LRA_%04X", (uint16_t)(mac & 0xFFFF));
   Serial.printf("BLE name: %s\n", devName);
   BLEDevice::init(devName);
   BLEServer *pServer = BLEDevice::createServer();
