@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Video Analyzer (Pixel Coords)</title>
+    <title>myLRA Controller (当日用)</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <h3>2-Color Tracker (Yellow / Red)</h3>
-    
+
     <div id="status">Bluetooth未接続</div>
     <div id="loading">OpenCV ロード中...</div>
     <div id="resolution-display">Resolution: - x -</div>
@@ -20,12 +20,6 @@
         <button id="connectButton" class="btn-sys" style="background-color: #007bff;">① Bluetooth 接続</button>
         <button id="cameraButton" class="btn-sys">② カメラ起動 (Webcam)</button>
         <button id="detectToggle" class="btn-sys" style="background-color: #607D8B;">🎯 検出設定</button>
-        <button id="memoToggle" class="btn-sys" style="background-color: #795548;">📝 メモ</button>
-
-        <span style="display: inline-block; margin-left: 15px; background: #333; padding: 5px 10px; border-radius: 6px; border: 1px solid #555;">
-            <button id="btn-voltage" class="btn-sys" style="background-color: #9C27B0; padding: 8px 15px; margin: 0;">⚡ 電圧確認</button>
-            <span id="voltage-display" style="font-size: 1.2rem; font-weight: bold; margin-left: 10px; color: #E040FB;">-- V</span>
-        </span>
     </div>
 
     <div id="detect-area" style="display:none; background:#2a2a2a; padding:12px; border-radius:8px; margin-top:10px; text-align:left;">
@@ -65,36 +59,9 @@
         </div>
     </div>
 
-    <div id="memo-area" style="display:none; background:#2b2522; padding:12px; border-radius:8px; margin-top:10px; text-align:left; max-width:560px; margin-left:auto; margin-right:auto;">
-        <div style="font-weight:bold; margin-bottom:6px; color:#BCAAA4;">メモ (.md)</div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:6px;">
-            <button id="memo-open" class="btn-sys" style="background:#795548; padding:6px 12px; margin:0;">📂 ファイルを開く</button>
-            <button id="memo-save" class="btn-sys" style="background:#4CAF50; padding:6px 12px; margin:0;">💾 保存</button>
-            <button id="memo-append" class="btn-sys" style="background:#FF9800; padding:6px 12px; margin:0;">＋ 日時付きで追記</button>
-            <span id="memo-file" style="font-size:0.8rem; color:#aaa;">未読み込み</span>
-        </div>
-        <textarea id="memo-text" spellcheck="false" placeholder="ここにメモ… 「ファイルを開く」で notes.md を選ぶと読み書きできます" style="width:100%; height:200px; box-sizing:border-box; background:#1a1a1a; color:#eee; border:1px solid #555; border-radius:6px; padding:8px; font-family:monospace; font-size:0.9rem; resize:vertical;"></textarea>
-        <div id="memo-status" style="font-size:0.8rem; color:#9E9E9E; margin-top:4px;"></div>
-    </div>
-
     <div class="mode-tabs">
         <button id="mode3Btn" class="tab active">Mode 3<br><span style="font-size:0.7em">動作確認</span></button>
-        <button id="mode5Btn" class="tab">Mode 5<br><span style="font-size:0.7em">別波形動作</span></button>
-        <button id="mode1Btn" class="tab">Mode 1<br><span style="font-size:0.7em">3秒記録</span></button>
         <button id="mode2Btn" class="tab">Mode 2<br><span style="font-size:0.7em">自動追尾</span></button>
-        <button id="mode4Btn" class="tab">Mode 4<br><span style="font-size:0.7em">動画解析</span></button>
-        <button id="mode6Btn" class="tab">Mode 6<br><span style="font-size:0.7em">自動調整</span></button>
-        <button id="mode7Btn" class="tab">Mode 7<br><span style="font-size:0.7em">個別設定</span></button>
-    </div>
-
-    <div id="file-input-container">
-        <div style="margin-bottom:5px; color:#FFAB91; font-weight:bold;">動画ファイルを選択</div>
-        <p style="font-size:0.8rem; color:#ccc; margin:5px;">※中心に「黄色」、前方に「赤色」のシールを貼ってください</p>
-        <input type="file" id="videoInput" accept="video/*" style="color:white;">
-        <div style="margin-top:10px;">
-            <button id="v-play" class="btn-sys" style="padding:5px 15px;">再生/停止</button>
-            <button id="v-reset" class="btn-sys" style="padding:5px 15px;">リセット</button>
-        </div>
     </div>
 
     <div id="dpad-area" class="mode3-active">
@@ -107,101 +74,18 @@
     <div id="param-area">
         <div style="font-weight:bold; margin-bottom:10px; color:#FF9800;">パラメータ設定</div>
         <div class="param-row">
-            <div class="param-group"><label>Res 1</label><input type="number" id="p-res1" class="param-input" value="5"></div>
+            <div class="param-group"><label>Res 1</label><input type="number" id="p-res1" class="param-input" value="10"></div>
             <div class="param-group"><label>Rep 1</label><input type="number" id="p-rep1" class="param-input" value="4"></div>
         </div>
         <div class="param-row">
-            <div class="param-group"><label>Res 2</label><input type="number" id="p-res2" class="param-input" value="10"></div>
-            <div class="param-group"><label>Rep 2</label><input type="number" id="p-rep2" class="param-input" value="4"></div>
+            <div class="param-group"><label>Res 2</label><input type="number" id="p-res2" class="param-input" value="35"></div>
+            <div class="param-group"><label>Rep 2</label><input type="number" id="p-rep2" class="param-input" value="2"></div>
         </div>
         <button id="btn-update">パラメータ更新</button>
         <div style="margin-top:12px;">
             <div style="font-size:0.8rem; color:#aaa; margin-bottom:4px;">出力波形プレビュー(現在のパラメータ / 上:前後 下:左右)</div>
             <canvas id="wave-canvas" width="360" height="150" style="width:100%; max-width:360px; background:#1a1a1a; border-radius:6px; display:block; margin:0 auto;"></canvas>
         </div>
-    </div>
-
-    <div id="dir-config-area" style="display:none; background:#333; padding:12px; border-radius:8px; margin-top:10px; text-align:left;">
-        <div style="font-weight:bold; margin-bottom:6px; color:#FFB300;">個別設定 (方向ごと)</div>
-        <p style="font-size:0.8rem; color:#ccc; margin:4px 0;">方向ごとに move関数の種類・繰り返し回数・res・rep を設定します。変更すると即送信(要接続)。D-padや矢印キーでこの設定の波形を動かして確認できます。move/move2 は(res, rep=回数)、move3/move4 は(res1=res, res2=rep)として扱われます。</p>
-        <table id="dir-config-table" style="width:100%; border-collapse:collapse; font-size:0.85rem;">
-            <tr style="color:#aaa;"><th style="text-align:left;">方向</th><th>関数</th><th>回数</th><th>res</th><th>rep</th></tr>
-            <tr data-row="1">
-                <td style="color:#4CAF50; font-weight:bold;">前 ▲</td>
-                <td><select class="dc-func" data-id="1"><option value="1">move</option><option value="2">move2</option><option value="3">move3</option><option value="4">move4</option></select></td>
-                <td><input type="number" class="dc-outer" data-id="1" value="10"></td>
-                <td><input type="number" class="dc-res" data-id="1" value="19"></td>
-                <td><input type="number" class="dc-rep" data-id="1" value="3"></td>
-            </tr>
-            <tr data-row="2">
-                <td style="color:#4CAF50; font-weight:bold;">後 ▼</td>
-                <td><select class="dc-func" data-id="2"><option value="1">move</option><option value="2">move2</option><option value="3">move3</option><option value="4">move4</option></select></td>
-                <td><input type="number" class="dc-outer" data-id="2" value="10"></td>
-                <td><input type="number" class="dc-res" data-id="2" value="19"></td>
-                <td><input type="number" class="dc-rep" data-id="2" value="3"></td>
-            </tr>
-            <tr data-row="3">
-                <td style="color:#00BCD4; font-weight:bold;">右 ▶</td>
-                <td><select class="dc-func" data-id="3"><option value="1">move</option><option value="2">move2</option><option value="3">move3</option><option value="4" selected>move4</option></select></td>
-                <td><input type="number" class="dc-outer" data-id="3" value="1"></td>
-                <td><input type="number" class="dc-res" data-id="3" value="30"></td>
-                <td><input type="number" class="dc-rep" data-id="3" value="5"></td>
-            </tr>
-            <tr data-row="4">
-                <td style="color:#00BCD4; font-weight:bold;">左 ◀</td>
-                <td><select class="dc-func" data-id="4"><option value="1">move</option><option value="2">move2</option><option value="3">move3</option><option value="4" selected>move4</option></select></td>
-                <td><input type="number" class="dc-outer" data-id="4" value="1"></td>
-                <td><input type="number" class="dc-res" data-id="4" value="30"></td>
-                <td><input type="number" class="dc-rep" data-id="4" value="5"></td>
-            </tr>
-        </table>
-        <button id="dc-sendall" class="btn-sys" style="background:#FFB300; color:#000; margin-top:10px;">現在の設定を全部送信</button>
-    </div>
-
-    <div id="save-area">
-        <div id="log-count" style="margin-bottom:10px;">データ数: 0</div>
-        <button id="saveBtn" class="btn-save">💾 CSV保存</button>
-        <button id="clearBtn" class="btn-clear">🗑️ クリア</button>
-    </div>
-
-    <div id="tune-area" style="display:none; background:#333; padding:12px; border-radius:8px; margin-top:10px;">
-        <div style="font-weight:bold; margin-bottom:10px; color:#E91E63;">自動パラメータ計測</div>
-        <p style="font-size:0.8rem; color:#ccc; margin:5px 0;">※カメラ起動とBluetooth接続、黄色・赤の両マーカーの検出が必要です。選んだパターンを固定で動かしながらパラメータを総当たりし、実際の移動方向(前後/左右成分)と回転を記録して最後にまとめます(自動適用はしません)。パターン1/2はRes1/Rep1、3/4はRes2/Rep2を探索します</p>
-        <div class="param-row">
-            <div class="param-group"><label>動かすパターン</label>
-                <select id="t-pattern" class="param-input">
-                    <option value="1">パターン1 (▲)</option>
-                    <option value="2">パターン2 (▼)</option>
-                    <option value="3">パターン3 (▶)</option>
-                    <option value="4">パターン4 (◀)</option>
-                </select>
-            </div>
-            <div class="param-group"><label>波形</label>
-                <select id="t-wave" class="param-input">
-                    <option value="normal">通常</option>
-                    <option value="new">別波形</option>
-                </select>
-            </div>
-            <div class="param-group"><label>動作時間[ms]</label><input type="number" id="t-dur" class="param-input" value="1500"></div>
-        </div>
-        <div class="param-row">
-            <div class="param-group"><label>Res 最小</label><input type="number" id="t-res-min" class="param-input" value="5"></div>
-            <div class="param-group"><label>Res 最大</label><input type="number" id="t-res-max" class="param-input" value="40"></div>
-            <div class="param-group"><label>Res 刻み</label><input type="number" id="t-res-step" class="param-input" value="5"></div>
-        </div>
-        <div class="param-row">
-            <div class="param-group"><label>Rep 最小</label><input type="number" id="t-rep-min" class="param-input" value="1"></div>
-            <div class="param-group"><label>Rep 最大</label><input type="number" id="t-rep-max" class="param-input" value="7"></div>
-            <div class="param-group"><label>Rep 刻み</label><input type="number" id="t-rep-step" class="param-input" value="2"></div>
-        </div>
-        <div style="margin-top:10px;">
-            <button id="t-start" class="btn-sys" style="background-color:#E91E63;">▶ 開始</button>
-            <button id="t-abort" class="btn-sys" style="background-color:#9E9E9E;">■ 中止</button>
-            <button id="t-save" class="btn-save">💾 結果CSV</button>
-        </div>
-        <div id="t-progress" style="margin-top:8px; color:#FFD54F; font-size:0.9rem;"></div>
-        <div id="t-summary" style="margin-top:4px; color:#eee; font-size:0.9rem; text-align:left;"></div>
-        <table id="t-results" style="margin-top:8px; border-collapse:collapse; color:#eee; font-size:0.85rem; width:100%; text-align:center;"></table>
     </div>
 
     <script async src="opencv.js"></script>
